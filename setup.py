@@ -26,5 +26,6 @@ if __name__ == "__main__":
         python_requires='>=3.6.5',
         zip_safe=False,
         install_requires=[
-            'fireworks>=1.9.5' ]
+            'fireworks>=1.9.5',
+        ]
     )

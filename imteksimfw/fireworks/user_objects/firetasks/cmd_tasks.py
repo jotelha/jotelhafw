@@ -1,128 +1,274 @@
 #!/usr/bin/env python
+"""Enhanced script task."""
 
-# fireworks-internal
-from fireworks.core.firework import FWAction, FiretaskBase
-
-import os
-# from script_task.py
 import subprocess
 import sys
+
+# fireworks-internal
+from fireworks.core.firework import FWAction
+from fireworks.user_objects.firetasks.script_task import ScriptTask
+
 if sys.version_info[0] > 2:
     basestring = str
 
 
-__author__      = 'Johannes Hoermann'
-__copyright__   = 'Copyright 2018, IMTEK'
-__version__     = '0.1.1'
-__maintainer__  = 'Johannes Hoermann'
-__email__       = 'johannes.hoermann@imtek.uni-freiburg.de'
-__date__        = 'Nov 29, 2019'
+__author__ = 'Johannes Hoermann'
+__copyright__ = 'Copyright 2018, IMTEK'
+__version__ = '0.1.1'
+__maintainer__ = 'Johannes Hoermann'
+__email__ = 'johannes.hoermann@imtek.uni-freiburg.de'
+__date__ = 'Mar 18, 2020'
 
-class CmdTask(FiretaskBase):
-    """ Enhanced script task, runs (possibly environment dependent)  command.
+
+class CmdTask(ScriptTask):
+    """Enhanced script task, runs (possibly environment dependent)  command.
+
+    Required params:
+        - cmd (str): command to look up within '_fw_env (see below for details)
+
+    Optional params:
+        - opt ([obj]): list of strings (or int, float, ...) to pass as
+            options / arguments tp 'cmd'
+        - env (str): allows to specify an environment possibly defined in the
+            worker file. If so, additional environment-related iintialization
+            and expansion of command aliases are carried out (see below).
+        - defuse_bad_rc - (default:False) - if set True, a non-zero returncode
+            from the Script (indicating error) will cause FireWorks to defuse
+            the child FireWorks rather than continuing.
+        - fizzle_bad_rc - (default:False) - if set True, a non-zero returncode
+            from the Script (indicating error) will cause the Firework to raise
+            an error and FIZZLE.
+        - use_shell - (default:True) - whether to execute the command through
+            the current shell (e.g., BASH or CSH). If true, you will be able
+            to use environment variables and shell operators; but, this method
+            can be less secure.
+        - shell_exe - (default:None) - shell executable, e.g. /bin/bash.
+            Generally, you do not need to set this unless you want to run
+            through a non-default shell.
+        - stdin_file - (default:None) - feed this filepath as standard input
+            to the script
+        - stdin_key - (default:None) - feed this String as standard input
+            to the script
+        - store_stdout (default:False) - store the entire standard output in
+            the Firework Launch object's stored_data
+        - stdout_file - (default:None) - store the entire standard output in
+            this filepath. If None, the standard out will be streamed to
+            sys.stdout
+        - store_stderr - (default:False) - store the entire standard error in
+            the Firework Launch object's stored_data
+        - stderr_file - (default:None) - store the entire standard error in
+            this filepath. If None, the standard error will be streamed to
+            sys.stderr.
+
     Makes use of '_fw_env' worker specific definitions and allow for certain
     abstraction when running commands, i.e.
 
-    - _fw_name: CmdTask
-      cmd: lmp
-      opt:
-      - -in lmp_production.input
-      - -v surfactant_name SDS
-      - -v has_indenter 1
-      - -v constant_indenter_velocity -0.0001
-      - -v productionSteps 375000
-      [...]
-      - -v store_forces 1
-      stderr_file:   std.err
-      stdout_file:   std.out
-      fizzle_bad_rc: true
-      use_shell:     true
+        - _fw_name: CmdTask
+          cmd: lmp
+          opt:
+          - -in lmp_production.input
+          - -v surfactant_name SDS
+          - -v has_indenter 1
+          - -v constant_indenter_velocity -0.0001
+          - -v productionSteps 375000
+          [...]
+          - -v store_forces 1
+          stderr_file:   std.err
+          stdout_file:   std.out
+          fizzle_bad_rc: true
+          use_shell:     true
 
     will actually look for a definition 'lmp' within a worker's '_fw_env' and
     if available execute in place of the  specififed command, simply appending
-    the list of options given in 'opt' separated by sapces. This allows machine-
-    specific cod to be placed within the worker files, i.e. for a machine called
-    NEMO within nemo_queue_worker.yaml
+    the list of options given in 'opt' separated by sapces. This allows
+    machine-specific cod to be placed within the worker files, i.e. for a
+    machine called NEMO within nemo_queue_worker.yaml
 
-    name: nemo_queue_worker
-    category: [ 'nemo_queue' ]
-    query: '{}'
-    env:
-      lmp: module purge;
-           module use /work/ws/nemo/fr_lp1029-IMTEK_SIMULATION-0/modulefiles;
-           module use ${HOME}/modulefiles;
-           module load lammps/16Mar18-gnu-7.3-openmpi-3.1-colvars-09Feb19;
-           mpirun ${MPIRUN_OPTIONS} lmp
+        name: nemo_queue_worker
+        category: [ 'nemo_queue' ]
+        query: '{}'
+        env:
+          lmp: module purge;
+               module use /path/to/modulefiles;
+               module use ${HOME}/modulefiles;
+               module load lammps/16Mar18-gnu-7.3-openmpi-3.1-colvars-09Feb19;
+               mpirun ${MPIRUN_OPTIONS} lmp
 
     and for a machine called JUWELS within
 
-    name:     juwels_queue_worker
-    category: [ 'juwels_queue' ]
-    query:    '{}'
-    env:
-      lmp:  module purge;
-            jutil env activate -p chfr13;
-            module use ${PROJECT}/hoermann/modules/modulefiles;
-            module load Intel/2019.0.117-GCC-7.3.0 IntelMPI/2018.4.274;
-            module load jlh/lammps/16Mar18-intel-2019-gcc-7.3-impi-2018-colvars-18Feb19;
-            srun lmp
+        name:     juwels_queue_worker
+        category: [ 'juwels_queue' ]
+        query:    '{}'
+        env:
+          lmp:  module purge;
+                jutil env activate -p chfr13;
+                module use ${PROJECT}/hoermann/modules/modulefiles;
+                module load Intel/2019.0.117-GCC-7.3.0 IntelMPI/2018.4.274;
+                module load jlh/lammps/16Mar18-intel-2019a
+                srun lmp
 
     A third machine's worker file might look like this:
 
-    name: bwcloud_std_fworker
-    category: [ 'bwcloud_std', 'bwcloud_noqueue' ]
-    query: '{}'
-    env:
-      lmp:  module purge;
-            module load LAMMPS;
-            mpirun -n 4 lmp
-      vmd:  module purge;
-            module load VMD;
-            vmd
-      pizza.py: module load MDTools/jlh-25Jan19-python-2.7;
-                pizza.py
+        name: bwcloud_std_fworker
+        category: [ 'bwcloud_std', 'bwcloud_noqueue' ]
+        query: '{}'
+        env:
+          lmp:  module purge;
+                module load LAMMPS;
+                mpirun -n 4 lmp
+          vmd:  module purge;
+                module load VMD;
+                vmd
+          pizza.py: module load MDTools/jlh-25Jan19-python-2.7;
+                    pizza.py
 
     This allows for machine-independent workflow design.
+
+    More sophisticated environment modifications are possible when
+    explicitly specifying the 'env' option. Worker files can contain
+
+        env:
+            python:
+                init:
+                - 'import sys, os'
+                - 'sys.path.insert(0, os.path.join(os.environ["MODULESHOME"], "init"))'
+                - 'from env_modules_python import module'
+                - 'module("use","/path/to/modulefiles")'
+                cmd:
+                    gmx:
+                        init: 'module("load","GROMACS/2019.3")'
+                        substitute: gmx_mpi
+                        prefix: ['mpirun', { 'eval': 'os.environ["MPIRUN_OPTIONS"]' } ]
+
+    corresponds to a bash snippet
+
+        module use /path/to/modulefiles
+        module load GROMACS/2019.3
+        mpirun ${MPIRUN_OPTIONS} gmx_mpi ...
+
+    extended by arguments within the task's 'opt' parameter.
+
     """
+
     required_params = ['cmd']
+    optional_params = [
+        'opt', 'env',
+        'stdin_file', 'stdin_key',
+        'stdout_file', 'stderr_file', 'store_stdout', 'store_stderr',
+        'shell_exe', 'defuse_bad_rc', 'fizzle_bad_rc']
     _fw_name = 'CmdTask'
 
-    def run_task(self, fw_spec):
-        if self.get('use_global_spec'):
-            self._load_params(fw_spec)
-        else:
-            self._load_params(self)
-
-        # get the standard in and run task internally
-        if self.stdin_file:
-            with open(self.stdin_file) as stdin_f:
-                return self._run_task_internal(fw_spec, stdin_f)
-        stdin = subprocess.PIPE if self.stdin_key else None
-        return self._run_task_internal(fw_spec, stdin)
-
     def _run_task_internal(self, fw_spec, stdin):
-        # run LAMMPS
+        # run the program
         stdout = subprocess.PIPE if self.store_stdout or self.stdout_file else None
         stderr = subprocess.PIPE if self.store_stderr or self.stderr_file else None
         returncodes = []
 
-        if "_fw_env" in fw_spec and self.cmd in fw_spec["_fw_env"]:
+        args = []
+        # in case of a specified worker environment
+        if self.env and "_fw_env" in fw_spec and self.env in fw_spec["_fw_env"]:
+            # _fw_env : env : init may provide a list of python commans
+            # to run, i.e. for module env initialization
+            if "init" in fw_spec["_fw_env"][self.env]:
+                init = fw_spec["_fw_env"][self.env]["init"]
+                if isinstance(init, basestring):
+                    init = [init]
+                assert isinstance(init, list)
+                for cmd in init:
+                    exec(cmd)
+            else:
+                pass  # no particular initialization for this environment
+
+            # check whether there is any machine-specific "expansion" for
+            # the command head
+            if "cmd" in fw_spec["_fw_env"][self.env] and self.cmd in fw_spec["_fw_env"][self.env]["cmd"]:
+                # same as above, evaluate command-specific initialization code
+                if "init" in fw_spec["_fw_env"][self.env]["cmd"][self.cmd]:
+                    init = fw_spec["_fw_env"][self.env]["cmd"][self.cmd]["init"]
+                    if isinstance(init, basestring):
+                        init = [init]
+                    assert isinstance(init, list), "'init' must be str or list"
+                    for cmd in init:
+                        exec(cmd)
+                else:
+                    pass  # no specific initialization for this command
+
+                if "substitute" in fw_spec["_fw_env"][self.env]["cmd"][self.cmd]:
+                    substitute = fw_spec["_fw_env"][self.env]["cmd"][self.cmd]["substitute"]
+                    assert isinstance(substitute, basestring), "substitute must be str"
+                    args.append(substitute)
+                else:  # otherwise just use command as specified
+                    args.append(self.cmd)
+
+                # prepend machine-specific prefixes to command
+                if "prefix" in fw_spec["_fw_env"][self.env]["cmd"][self.cmd]:
+                    prefix_list = fw_spec["_fw_env"][self.env]["cmd"][self.cmd]["prefix"]
+                    if not isinstance(prefix_list, list):
+                        prefix_list = [prefix_list]
+
+                    processed_prefix_list = []
+                    for i, prefix in enumerate(prefix_list):
+                        processed_prefix = []
+                        # a prefix dict allow for something like this:
+                        #    cmd:
+                        #      lmp:
+                        #        init:   'module("load","lammps/16Mar18-gnu-7.3-openmpi-3.1-colvars-09Feb19")'
+                        #        prefix: [ 'mpirun', { 'eval': 'os.environ["MPIRUN_OPTIONS"]' } ]
+                        if isinstance(prefix, dict):
+                            # special treatment desired for this prefix
+                            if "eval" in prefix:
+                                # evaluate prefix in current context
+                                processed_prefix = eval(prefix["eval"])
+                                try:
+                                    processed_prefix = processed_prefix.decode("utf-8")
+                                except AttributeError:
+                                    pass
+                                if isinstance(processed_prefix, basestring):
+                                    processed_prefix = processed_prefix.split()
+                                else:
+                                    raise ValueError(
+                                        "Output {} of prefix #{} evaluation not accepted!".format(
+                                            processed_prefix, i))
+                            else:
+                                raise ValueError(
+                                    "Formatting {} of prefix #{} not accepted!".format(
+                                        prefix, i))
+                        elif isinstance(prefix,basestring):
+                            # prefix is string, not much to do, split & prepend
+                            processed_prefix = prefix.split()
+                        else:
+                            raise ValueError(
+                                "type({}) = {} of prefix #{} not accepted!".format(
+                                    prefix, type(prefix), i))
+
+                        if not isinstance(processed_prefix, list):
+                            processed_prefix = [processed_prefix]
+
+                        processed_prefix_list.extend(processed_prefix)
+
+                    args = processed_prefix_list + args  # concat two lists
+                else:
+                    pass  # no prefix list to prepend for this command
+            else:  # no command-specific expansion in environment, use as is
+                args.append(self.cmd)
+        elif "_fw_env" in fw_spec and self.cmd in fw_spec["_fw_env"]:
             # check whether there is any desired command and whether there
             # exists a machine-specific "alias"
-            cmd = fw_spec["_fw_env"][self.cmd]
+            args = fw_spec["_fw_env"][self.cmd]
         else:
-            cmd = self.cmd
+            args = self.cmd
 
-        if self.opt: # append command line options if available
-            opt = [ o if isinstance(o,str) else str(o) for o in self.opt ]
-            cmd = ' '.join((cmd,*opt))
+        if self.opt:  # append command line options if available
+            args.append(self.opt)
+
+        # make sure all arguments are strings
+        args = [a if isinstance(a, basestring) else str(a) for a in args]
 
         p = subprocess.Popen(
-            cmd, executable=self.shell_exe, stdin=stdin,
+            args, executable=self.shell_exe, stdin=stdin,
             stdout=stdout, stderr=stderr,
             shell=self.use_shell)
 
-            # communicate in the standard in and get back the standard out and returncode
         if self.stdin_key:
             (stdout, stderr) = p.communicate(fw_spec[self.stdin_key])
         else:
@@ -131,8 +277,10 @@ class CmdTask(FiretaskBase):
 
         # write out the output, error files if specified
 
-        stdout = stdout.decode('utf-8', errors="ignore") if isinstance(stdout, bytes) else stdout
-        stderr = stderr.decode('utf-8', errors="ignore") if isinstance(stderr, bytes) else stderr
+        stdout = stdout.decode('utf-8', errors="ignore") if isinstance(
+            stdout, bytes) else stdout
+        stderr = stderr.decode('utf-8', errors="ignore") if isinstance(
+            stderr, bytes) else stderr
 
         if self.stdout_file:
             with open(self.stdout_file, 'a+') as f:
@@ -155,12 +303,14 @@ class CmdTask(FiretaskBase):
         output['all_returncodes'] = returncodes
 
         if self.defuse_bad_rc and sum(returncodes) != 0:
-            return FWAction(stored_data=output, defuse_children=True)
-
+            fwaction = FWAction(stored_data=output, defuse_children=True)
         elif self.fizzle_bad_rc and sum(returncodes) != 0:
-            raise RuntimeError('CmdTask fizzled! Return code: {}'.format(returncodes))
+            raise RuntimeError(
+                'CmdTask fizzled! Return code: {}'.format(returncodes))
+        else:
+            fwaction = FWAction(stored_data=output)
 
-        return FWAction(stored_data=output)
+        return fwaction
 
     def _load_params(self, d):
         if d.get('stdin_file') and d.get('stdin_key'):
@@ -171,10 +321,11 @@ class CmdTask(FiretaskBase):
         self.cmd = d.get('cmd')
 
         # command line options
-        opt = d.get('opt',None)
+        opt = d.get('opt', None)
         if isinstance(opt, basestring):
             opt = [opt]
         self.opt = opt
+        self.env = self.get('env')
 
         self.stdin_file = d.get('stdin_file')
         self.stdin_key = d.get('stdin_key')
@@ -182,13 +333,13 @@ class CmdTask(FiretaskBase):
         self.stderr_file = d.get('stderr_file')
         self.store_stdout = d.get('store_stdout')
         self.store_stderr = d.get('store_stderr')
-        self.shell_exe = d.get('shell_exe', '/bin/bash') # bash as default
+        self.shell_exe = d.get('shell_exe', '/bin/bash')  # bash as default
         self.defuse_bad_rc = d.get('defuse_bad_rc')
         self.fizzle_bad_rc = d.get('fizzle_bad_rc', not self.defuse_bad_rc)
 
-
         if self.defuse_bad_rc and self.fizzle_bad_rc:
-            raise ValueError('CmdTask cannot both FIZZLE and DEFUSE a bad returncode!')
+            raise ValueError(
+                'CmdTask cannot both FIZZLE and DEFUSE a bad returncode!')
 
     @classmethod
     def from_str(cls, shell_cmd, parameters=None):
