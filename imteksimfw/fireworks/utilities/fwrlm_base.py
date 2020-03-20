@@ -81,11 +81,77 @@ class FireWorksRocketLauncherManager():
     def scheduler(self):
         return SCHEDULER
 
+    # rlaunch related properties
+    @property
+    def rlaunch_fworker_file(self):
+        return RLAUNCH_FWORKER_FILE if RLAUNCH_FWORKER_FILE else os.path.join(
+            FW_CONFIG_PREFIX, "{:s}_noqueue_worker.yaml"
+                .format(self.machine.lower()))
+
+    @property
+    def rlaunch_interval(self):
+        return 10  # seconds
+
+    # qlaunch related properties
+    @property
+    def qlaunch_fworker_file(self):
+        return QLAUNCH_FWORKER_FILE if QLAUNCH_FWORKER_FILE else os.path.join(
+            FW_CONFIG_PREFIX, "{:s}_queue_worker.yaml"
+                .format(self.machine.lower()))
+
+    @property
+    def qadapter_file(self):
+        return QADAPTER_FILE if QADAPTER_FILE else os.path.join(
+            FW_CONFIG_PREFIX, "{:s}_{:s}_qadapter.yaml"
+                .format(self.machine.lower(), self.scheduler.lower()))
+
+    @property
+    def qlaunch_interval(self):
+        return 10  # seconds
+
+    # lpad recover offline related properties
+    @property
+    def lpad_recover_offline_interval(self):
+        return 10  # seconds
+
+    # ssh related properties
+
+    # only jump user implemented
+    @property
+    def jump_user(self):
+        return SSH_USER
+
+    @property
+    def jump_host(self):
+        return SSH_HOST
+
+    @property
+    def remote_host(self):
+        return MONGODB_HOST
+
+    @property
+    def local_port(self):
+        return MONGODB_PORT_LOCAL
+
+    @property
+    def remote_port(self):
+        return MONGODB_PORT_REMOTE
+
+    # only one ssh key implemented
+    @property
+    def ssh_key(self):
+        return SSH_KEY
+
+    @property
+    def ssh_port(self):
+        return 22
+
+
     @property
     def timestamp(self):
         return self._launchtime.strftime('%Y%m%d%H%M%S%f')
 
-    # daemon-administration related
+    # daemon administration related properties
     @property
     def piddir(self):
         if not hasattr(self, '_piddir'):

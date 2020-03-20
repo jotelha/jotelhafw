@@ -37,16 +37,6 @@ import psutil  # checking process status
 import socket  # for host name
 import subprocess
 
-from imteksimfw.fireworks.fwrlm_config import \
-  FW_CONFIG_PREFIX, FW_CONFIG_FILE_NAME, FW_AUTH_FILE_NAME, \
-  LAUNCHPAD_LOC, LOGDIR_LOC, MACHINE, SCHEDULER, \
-  MONGODB_HOST, MONGODB_PORT_REMOTE, MONGODB_PORT_LOCAL, \
-  FIREWORKS_DB, FIREWORKS_USER, FIREWORKS_PWD, \
-  SSH_HOST, SSH_USER, SSH_TUNNEL, SSH_KEY, USE_RSTUNNEL, RSTUNNEL_CONFIG, \
-  RECOVER_OFFLINE, RLAUNCH_FWORKER_FILE, QLAUNCH_FWORKER_FILE, QADAPTER_FILE, \
-  MULTI_RLAUNCH_NTASKS,  OMP_NUM_THREADS, FWGUI_PORT
-
-
 from imteksimfw.fireworks.utilities.fwrlm_base import FireWorksRocketLauncherManager
 
 class DummyManager(FireWorksRocketLauncherManager):
@@ -81,36 +71,6 @@ class DummyManager(FireWorksRocketLauncherManager):
 
 
 class SSHTunnelManager(FireWorksRocketLauncherManager):
-    # only jump user implemented
-    @property
-    def jump_user(self):
-        return SSH_USER
-
-    @property
-    def jump_host(self):
-        return SSH_HOST
-
-    @property
-    def remote_host(self):
-        return MONGODB_HOST
-
-    @property
-    def local_port(self):
-        return MONGODB_PORT_LOCAL
-
-    @property
-    def remote_port(self):
-        return MONGODB_PORT_REMOTE
-
-    # only one ssh key implemented
-    @property
-    def ssh_key(self):
-        return SSH_KEY
-
-    @property
-    def ssh_port(self):
-        return 22
-
     @property
     def pidfile_name(self):
         return (
@@ -165,16 +125,6 @@ class RLaunchManager(FireWorksRocketLauncherManager):
         return os.path.join(self.logdir_loc,"rlaunch_{:s}.err"
             .format(self.timestamp))
 
-    @property
-    def rlaunch_fworker_file(self):
-        return RLAUNCH_FWORKER_FILE if RLAUNCH_FWORKER_FILE else os.path.join(
-            FW_CONFIG_PREFIX, "{:s}_noqueue_worker.yaml"
-                .format(self.machine.lower()))
-
-    @property
-    def rlaunch_interval(self):
-        return 10  # seconds
-
     def spawn(self):
         """spawn rlaunch"""
         args = [ 'rlaunch',
@@ -191,7 +141,7 @@ class RLaunchManager(FireWorksRocketLauncherManager):
         self.logger.info("Subprocess exited with return code = {}"
              .format(p.returncode))
 
-# stubs
+
 class QLaunchManager(FireWorksRocketLauncherManager):
     @property
     def pidfile_name(self):
@@ -199,19 +149,65 @@ class QLaunchManager(FireWorksRocketLauncherManager):
             user=getpass.getuser(), host=socket.gethostname())
 
     @property
-    def qlaunch_fworker_file(self):
-        return QLAUNCH_FWORKER_FILE if QLAUNCH_FWORKER_FILE else os.path.join(
-            FW_CONFIG_PREFIX, "{:s}_queue_offline_worker.yaml"
-                .format(self.machine.lower()))
+    def outfile_name(self):
+        return os.path.join(self.logdir_loc,"qlaunch_{:s}.out"
+            .format(self.timestamp))
 
     @property
-    def qadapter_file(self):
-        return QADAPTER_FILE if QADAPTER_FILE else os.path.join(
-            FW_CONFIG_PREFIX, "{:s}_{:s}_qadapter_offline.yaml"
-                .format(self.machine.lower(), self.scheduler.lower()))
+    def errfile_name(self):
+        return os.path.join(self.logdir_loc,"qlaunch_{:s}.err"
+            .format(self.timestamp))
 
-class RecoverOfflineManager(FireWorksRocketLauncherManager):
+    def spawn(self):
+        """spawn qlaunch"""
+        args = [ 'qlaunch','-r',
+                 '-l', self.fw_auth_file_path,
+                 '-w', self.qlaunch_fworker_file,
+                 '-q', self.qadapter_file,
+                 '--loglvl', 'DEBUG', 'rapidfire',
+                 '--nlaunches', 'infinite',
+                 '--sleep', self.qlaunch_interval,
+               ]
+        args = [ a if isinstance(a, str) else str(a) for a in args ]
+        self.logger.info("Evoking '{cmd:s}'".format(cmd=' '.join(args)))
+        p = subprocess.Popen(args, cwd = self.launchpad_loc)
+        outs, errs = p.communicate()
+        self.logger.info("Subprocess exited with return code = {}"
+             .format(p.returncode))
+
+
+class LPadRecoverOfflineManager(FireWorksRocketLauncherManager):
     @property
     def pidfile_name(self):
-        return ".recover.{user:s}@{host:}.pid".format(
+        return ".lpad_recover_offline.{user:s}@{host:}.pid".format(
             user=getpass.getuser(), host=socket.gethostname())
+
+    @property
+    def outfile_name(self):
+        return os.path.join(self.logdir_loc,"lpad_recover_offline_{:s}.out"
+            .format(self.timestamp))
+
+    @property
+    def errfile_name(self):
+        return os.path.join(self.logdir_loc,"lpad_recover_offline_{:s}.err"
+            .format(self.timestamp))
+
+    def spawn(self):
+        """spawn recover offline loop"""
+        import time
+
+        args = [ 'lpad',
+                 '-l', self.fw_auth_file_path,
+                 'recover_offline',
+                 '-w', self.qlaunch_fworker_file,
+               ]
+        args = [ a if isinstance(a, str) else str(a) for a in args ]
+        self.logger.info("Evoking '{cmd:s}' repeatedly in a loop"
+            .format(cmd=' '.join(args)))
+
+        while True:
+            p = subprocess.Popen(args, cwd = self.launchpad_loc)
+            outs, errs = p.communicate()
+            self.logger.info("Subprocess exited with return code = {}"
+                .format(p.returncode))
+            time.sleep(self.lpad_recover_offline_interval)

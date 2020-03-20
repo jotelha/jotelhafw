@@ -8,12 +8,15 @@ import logging
 #import pid  # for pidfiles, tested for v3.0.0
 
 from imteksimfw.fireworks.utilities.fwrlm_base import pid
-from imteksimfw.fireworks.utilities.fwrlm import DummyManager, RLaunchManager, SSHTunnelManager
+from imteksimfw.fireworks.utilities.fwrlm import DummyManager, \
+    RLaunchManager, QLaunchManager, LPadRecoverOfflineManager, SSHTunnelManager
 
 daemon_dict = {
     'dummy': DummyManager,
-    'rlaunch': RLaunchManager,
     'ssh': SSHTunnelManager,
+    'rlaunch': RLaunchManager,
+    'qlaunch': QLaunchManager,
+    'recover': LPadRecoverOfflineManager,
 }
 
 # CLI commands pendants
@@ -22,8 +25,22 @@ def test_daemon(args):
     fwrlm.spawn()
 
 def start_daemon(args):
+    """Starts daemon and exits.
+
+    Returns:
+        int, sys.exit exit code
+        -   0: daemon started
+        - > 0: failure
+    """
+    logger = logging.getLogger(__name__)
+
     fwrlm = daemon_dict[ args.daemon ]()
-    fwrlm.spawn_daemon()
+    try:
+        fwrlm.spawn_daemon()
+        sys.exit(0)
+    except Exception as exc:
+        logger.exception(exc)
+        sys.exit(1)
 
 def check_daemon_status(args):
     """Checks status of daemon and exits.
@@ -41,12 +58,15 @@ def check_daemon_status(args):
 
     fwrlm = daemon_dict[ args.daemon ]()
     stat = fwrlm.check_daemon(raise_exc=False)
-    logger.info("{:s} daemon state: '{}'".format(args.daemon, stat))
+    logger.debug("{:s} daemon state: '{}'".format(args.daemon, stat))
     if stat == pid.PID_CHECK_RUNNING:
+        logger.info("{:s} running.".format(args.daemon))
         ret = 0  # success, daemon running
     elif stat in [pid.PID_CHECK_NOFILE, pid.PID_CHECK_NOTRUNNING]:
+        logger.info("{:s} not running.".format(args.daemon))
         ret = 3  # failure, daemon not running
     else:  # pid.PID_CHECK_UNREADABLE or pid.PID_CHECK_ACCESSDENIED
+        logger.warn("{:s} state unknown.".format(args.daemon))
         ret = 4  # failure, state unknown
     sys.exit(ret)
 
