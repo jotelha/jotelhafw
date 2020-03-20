@@ -27,5 +27,10 @@ if __name__ == "__main__":
         zip_safe=False,
         install_requires=[
             'fireworks>=1.9.5',
-        ]
+        ],
+        entry_points={
+            'console_scripts': [
+                'fwrlm = imteksimfw.fireworks.scripts.fwrlm_run:main',
+            ]
+        },
     )
