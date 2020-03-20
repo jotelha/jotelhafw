@@ -4,94 +4,34 @@
 import os
 import signal  # for unix system signal treatment (https://people.cs.pitt.edu/~alanjawi/cs449/code/shell/UnixSignals.htm)
 import sys  # for stdout and stderr
-import daemon  # for detached daemons
+import daemon  # for detached daemons, tested for v2.2.4
 import datetime  # for generating timestamps
-import getpass # get username
+import getpass  # get username
 import logging
-import monty.serialization  # for reading config files
-import pid # for pidfiles
+import pid  # for pidfiles, tested for v3.0.0
 import psutil  # checking process status
-# import pidfile
 import socket  # for host name
 import subprocess
 
-# configuration handling modeled following
-# https://github.com/materialsproject/fireworks/blob/master/fireworks/fw_config.py
+from imteksimfw.fwrlm_config import \
+  FW_CONFIG_PREFIX, FW_CONFIG_FILE_NAME, FW_AUTH_FILE_NAME, \
+  LAUNCHPAD_LOC, LOGDIR_LOC, MACHINE, SCHEDULER, \
+  MONGODB_HOST, MONGODB_PORT_REMOTE, MONGODB_PORT_LOCAL, \
+  FIREWORKS_DB, FIREWORKS_USER, FIREWORKS_PWD, \
+  SSH_HOST, SSH_USER, SSH_TUNNEL, SSH_KEY, USE_RSTUNNEL, RSTUNNEL_CONFIG, \
+  RECOVER_OFFLINE, RLAUNCH_FWORKER_FILE, QLAUNCH_FWORKER_FILE, QADAPTER_FILE, \
+  MULTI_RLAUNCH_NTASKS,  OMP_NUM_THREADS, FWGUI_PORT
 
-FWRLM_CONFIG_FILE_DIR = '.'
-FWRLM_CONFIG_FILE_NAME = 'FWRLM_config.yaml'
-FWRLM_CONFIG_FILE_ENV_VAR = 'FWRLM_CONFIG_FILE'
 
-FW_CONFIG_PREFIX = os.path.join(os.path.expanduser('~'), ".fireworks")
-FW_CONFIG_FILE_NAME = "FW_config.yaml"
-FW_AUTH_FILE_NAME = "fireworks_mongodb_auth.yaml"
+# define custom error codes
+pid.PID_CHECK_UNREADABLE = "PID_CHECK_UNREADABLE"
+pid.PID_CHECK_ACCESSDENIED = "PID_CHECK_ACCESSDENIED"
+pid.PID_CHECK_RUNNING = "PID_CHECK_RUNNING"
 
-LAUNCHPAD_LOC = os.path.join(os.path.expanduser('~'), "fw_launchpar")
-LOGDIR_LOC = os.path.join(os.path.expanduser('~'), "fw_logdir")
-
-# allow multiple rlaunch processes
-MULTI_RLAUNCH_NTASKS = 0
-OMP_NUM_THREADS = 1
-
-# gui settings
-FWGUI_PORT = 19886
-
-# mongodb and ssh tunnel settings
-MONGODB_HOST = 'localhost'
-MONGODB_PORT_REMOTE = 27017
-MONGODB_PORT_LOCAL = 27037
-FIREWORKS_DB = 'fireworks'
-FIREWORKS_USER = 'fireworks'
-FIREWORKS_PWD = 'fireworks'
-SSH_HOST = '132.230.102.164'
-SSH_USER = 'sshclient'
-SSH_TUNNEL = False
-SSH_KEY = os.path.join(os.path.expanduser('~'), ".ssh", "id_rsa")
-USE_RSTUNNEL = True
-RSTUNNEL_CONFIG = None # path to rstunnel config file
-
-# run daemon to periodically check offline runs
-RECOVER_OFFLINE = True
-
-# MACHINE-specfific settings
-MACHINE = "JUWELS"
-
-RLAUNCH_FWORKER_FILE = None
-# if not set explicitl, then stick to automatic convention
-# "${FW_CONFIG_PREFIX}/${MACHINE:lowercase}_noqueue_worker.yaml"
-
-QLAUNCH_FWORKER_FILE = None
-# if not set explicitl, then stick to automatic convention
-# "${FW_CONFIG_PREFIX}/${MACHINE:lowercase}_queue_offline_worker.yaml"
-
-QADAPTER_FILE = None
-# if not set explicitl, then stick to automatic convention
-# "${FW_CONFIG_PREFIX}/${MACHINE:lowercase}_{SCHEDULER_lowercase}_qadapter_offline.yaml"
-
-SCHEDULER = 'SLURM'
-
-# for python-daemon intro, refer to
-# https://dpbl.wordpress.com/2017/02/12/a-tutorial-on-python-daemon/ and
-# https://www.python.org/dev/peps/pep-3143/
-
-# class PidFile(pid.PidFile):
-#     """Allows checking of PID without setting up"""
-#     def check(self):
-#         if not self._is_setup:
-#             # set up light, only file name, no pid, no registration ...
-#             self.filename = self._make_filename()
-#
-#         self.logger.debug("%r check pidfile: %s", self, self.filename)
-#
-#         if self.fh is None:
-#             if self.filename and os.path.isfile(self.filename):
-#                 with open(self.filename, "r") as fh:
-#                     return self._inner_check(fh)
-#             return PID_CHECK_NOFILE
-#
-#         return self._inner_check(self.fh)
+from imteksimfw.fwrlm_config import config_to_dict, config_keys_to_list
 
 class FireWorksRocketLauncherManager():
+    """Base class for managing FireWorks-related daemons"""
     @property
     def fw_config_prefix(self):
         return FW_CONFIG_PREFIX
@@ -121,38 +61,10 @@ class FireWorksRocketLauncherManager():
         return SCHEDULER
 
     @property
-    def rlaunch_fworker_file(self):
-        return RLAUNCH_FWORKER_FILE if RLAUNCH_FWORKER_FILE else os.path.join(
-            FW_CONFIG_PREFIX, "{:s}_noqueue_worker.yaml"
-                .format(self.machine.lower()))
-
-    @property
-    def qlaunch_fworker_file(self):
-        return QLAUNCH_FWORKER_FILE if QLAUNCH_FWORKER_FILE else os.path.join(
-            FW_CONFIG_PREFIX, "{:s}_queue_offline_worker.yaml"
-                .format(self.machine.lower()))
-
-    @property
-    def qadapter_file(self):
-        return QADAPTER_FILE if QADAPTER_FILE else os.path.join(
-            FW_CONFIG_PREFIX, "{:s}_{:s}_qadapter_offline.yaml"
-                .format(self.machine.lower(), self.scheduler.lower()))
-
-    @property
-    def rlaunch_interval(self):
-        return 10  # seconds
-
-    @property
     def timestamp(self):
         return self._launchtime.strftime('%Y%m%d%H%M%S%f')
 
-    # @property
-    # def pidfile(self):
-    #    """pid.PidFile for daemon"""
-    #    if not hasattr(self, '_pidfile'):
-    #        self._pidfile = PidFile(self.pidfile_name)
-    #    return self._pidfile
-
+    # daemon-administration related
     @property
     def piddir(self):
         if not hasattr(self, '_piddir'):
@@ -185,68 +97,73 @@ class FireWorksRocketLauncherManager():
 
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        self.init()
-
-    def init(self):
         self._launchtime = datetime.datetime.now()
-        self.module_dir = os.path.dirname(os.path.abspath(__file__))
-        self.root_dir = os.path.dirname(self.module_dir)  # FW root dir
+        self.logger.debug("Launched at {:s} as".format(
+            self._launchtime.strftime('%Y-%m-%d %H:%M:%S.%f')))
+        self.logger.debug("")
+        self.logger.debug("    {:s}".format(' '.join(self.command_line)))
+        self.logger.debug("")
 
-        config_paths = []
-
-        test_paths = [
-            os.getcwd(),
-            os.path.join(os.path.expanduser('~'), ".fireworks"),
-            self.root_dir,
-        ]
-
-        for p in test_paths:
-            fp = os.path.join(p, FWRLM_CONFIG_FILE_NAME)
-            if fp not in config_paths and os.path.exists(fp):
-                config_paths.append(fp)
-
-        if FWRLM_CONFIG_FILE_ENV_VAR in os.environ \
-            and os.environ[FWRLM_CONFIG_FILE_ENV_VAR] not in config_paths:
-            config_paths.append(os.environ[FWRLM_CONFIG_FILE_ENV_VAR])
-
-
-        if len(config_paths) > 1:
-            self.logger.warn("Found many potential paths for {}: {}"
-                .format(FWRLM_CONFIG_FILE_NAME, config_paths))
-            self.logger.warn("Choosing as default: {}"
-                .format(config_paths[0]))
-
-        if len(config_paths) > 0 and os.path.exists(config_paths[0]):
-            overrides = monty.serialization.loadfn(config_paths[0])
-            for key, v in overrides.items():
-                if key not in globals():
-                    raise ValueError(
-                        'Invalid FWRLM_config file has unknown parameter: {}'
-                            .format(key))
-                else:
-                    self.logger.info("Set key : value pair '{}' : '{}'"
-                        .format(key, v))
-                    globals()[key] = v
-
-    def shutdown(self):
+    def shutdown(self, signum, frame):
         """Shut down daemon neatly"""
+        # try to end all child processes
+        self.logger.debug("Recieved signal {}, shutting down..."
+            .format(signum))
+        os.killpg(os.getpgrp(), signal.SIGTERM)
         sys.exit(0)
 
-    # def spawn_rlaunch_daemon(self):
-    #    self.spawn_daemon(self.spawn_rlaunch, self.rlaunch_pidfile)
+    def get_pid(self):
+        pidfile_path = os.path.join(self.piddir,self.pidfile_name)
+        if not os.path.exists(pidfile_path):
+            raise PidFileUnreadableError(
+                "{} does not exist.".format(pidfile_path))
 
-    # def spawn_dummy_daemon(self):
-    #    self.spawn_daemon(
-    #        self.spawn_dummy, self.dummy_pidfile,
-    #        open(self.dummy_outfile,'w+'), open(self.dummy_errfile,'w+'))
+        with open(pidfile_path, "r") as f:
+            try:
+                p = int(f.read())
+            except (OSError, ValueError) as exc:
+                raise pid.PidFileUnreadableError(exc)
+
+        return p
 
     # inspired by https://github.com/mosquito/python-pidfile/blob/d2ac227a5c3635db2541aa8d8e4507bdeb4b34e2/pidfile/pidfile.py#L15
     def check_daemon(self, raise_exc=True):
-        """Check for running process"""
+        """Check for a running process by PID file
+
+        Args:
+            raise_exc (bool): If true, only returns successfully either with
+                              `PID_CHECK_NOFILE` or `PID_CHECK_NOTRUNNING` if
+                              no running process was found, otherwise raises 
+                              exceptions (see below). If false, always returns
+                              with more specific code (default: True).
+        Returns:
+
+            str, in case of success:
+            - pid.PID_CHECK_NOFILE       No PID file found.
+            - pid.PID_CHECK_NOTRUNNING   PID file found and evaluated,
+                                         but no such process running.
+
+            str, in case of failure and `raise_exc = False`
+            - pid.PID_CHECK_UNREADABLE   PID file found, but no PID
+                                         could be read from it.
+            - pid.PID_CHECK_RUNNING      PID file found and evaluated,
+                                         process running.
+            - pid.PID_CHECK_ACCESSDENIED PID file found and evaluated,
+                                         process running, but we do not
+                                         have rights to query it.
+
+        Raises (in case of `raise_exc = True`,
+            corresponding to the three failure return codes above):
+
+            pid.PidFileUnreadableError
+            pid.PidFileAlreadyRunningError
+            psutil.AccessDenied
+
+        """
         pidfile_path = os.path.join(self.piddir,self.pidfile_name)
         if not os.path.exists(pidfile_path):
             self.logger.debug("{} does not exist.".format(pidfile_path))
-            return False
+            return pid.PID_CHECK_NOFILE
 
         self.logger.debug("{:s} exists.".format(pidfile_path))
 
@@ -258,13 +175,13 @@ class FireWorksRocketLauncherManager():
                 if raise_exc:
                     raise pid.PidFileUnreadableError(exc)
                 else:
-                    return False
+                    return pid.PID_CHECK_UNREADABLE
 
         self.logger.debug("Read PID '{:d}' from file.".format(p))
 
         if not psutil.pid_exists(p):
             self.logger.debug("Process of PID '{:d}' not running.".format(p))
-            return False
+            return pid.PID_CHECK_NOTRUNNING
 
         self.logger.debug("Process of PID '{:d}' running.".format(p))
 
@@ -276,49 +193,49 @@ class FireWorksRocketLauncherManager():
             if raise_exc:
                 raise exc
             else:
-                return False
+                return pid.PID_CHECK_ACCESSDENIED
 
         self.logger.debug("PID '{:d}' command line '{}'".format(p,' '.join(cmd)))
 
         if cmd != self.command_line:
-            self.logger.warn(
-                "Running process command line does not agree with current '{}'"
-                    .format(' '.join(self.command_line)))
+            self.logger.debug("PID file process command line")
+            self.logger.debug("")
+            self.logger.debug("    {:s}".format(' '.join(cmd)))
+            self.logger.debug("")
+            self.logger.debug("  does not agree with current process command line")
+            self.logger.debug("")
+            self.logger.debug("    {:s}".format(' '.join(self.command_line)))
+            self.logger.debug("")
 
         if raise_exc:
             raise pid.PidFileAlreadyRunningError(
                 "Program already running with PID '{:d}'"
                     .format(p))
         else:
-            return True
-
+            return pid.PID_CHECK_RUNNING
 
     def spawn_daemon(self):
-        self.logger.info("Redirecting stdout to '{stdout:s}'"
+        self.logger.debug("Redirecting stdout to '{stdout:s}'"
             .format(stdout=self.outfile_name))
-        self.logger.info("Redirecting stderr to '{stderr:s}'"
+        self.logger.debug("Redirecting stderr to '{stderr:s}'"
             .format(stderr=self.errfile_name))
-        self.logger.info("Using PID file '{}'.".format(self.pidfile_name))
+        self.logger.debug("Using PID file '{}'.".format(self.pidfile_name))
 
-        # returns PID_CHECK_EMPTY, PID_CHECK_SAMEPID, PID_CHECK_NOTRUNNING, PID_CHECK_NOFILE
-        # raises PidFileAlreadyRunningError, PidFileUnreadableError
         # only interested in exceptions, do not catch deliberately
-        # pidstat = self.pidfile.check()
-        # with pidfile.PIDFile(self.pidfile_name) as pid:
-        #    if pid.is_running:
-        #        self.logger.info("Apparently already running.")
-        #        raise pidfile.AlreadyRunningError()
-        self.check_daemon()
+        pidstat = self.check_daemon()
+        self.logger.debug("PID file state: {}.".format(pidstat))
 
-        d = daemon.DaemonContext(
-            pidfile=pid.PidFile(
+        self.pidfile = pid.PidFile(
                 pidname=self.pidfile_name,
                 piddir=self.piddir
-            ),
+            )
+
+        d = daemon.DaemonContext(
+            pidfile=self.pidfile,
             stdout=self.outfile,
             stderr=self.errfile,
             signal_map = {  # treat a few common signals
-                # signal.SIGTERM: self.shutdown, # treated in PidFile
+                signal.SIGTERM: self.shutdown,  # otherwise treated in PidFile
                 signal.SIGINT:  self.shutdown,
                 signal.SIGHUP:  self.shutdown,
             })
@@ -335,6 +252,37 @@ class FireWorksRocketLauncherManager():
             d.working_directory))
 
         self.spawn()
+
+    def stop_daemon(self):
+        """Exit the daemon process specified in the current PID file.
+
+        Returns:
+            bool: True for successfully stopped, False if not running.
+
+        Raises:
+            daemon.DaeminRunnerStopFailureError
+        """
+        try:
+            pidstat = self.check_daemon()
+        except pid.PidFileAlreadyRunningError:
+            pass  # It's running and we will stop it.
+        else:  # No exception means not running, nothing to stop.
+            self.logger.debug("Daemon not running ({}, nothing to do..."
+                .format(pidstat))
+            return False
+        # We don't catch other unknown state exceptions...
+
+        p = self.get_pid()
+        # PID should be available here, no exceptions to be expected.
+
+        try:
+            os.killpg(os.getpgid(p), signal.SIGTERM)
+        except OSError as exc:
+            raise daemon.DaemonRunnerStopFailureError(
+                "Failed to terminate {pid:d}: {exc}".format(
+                    pid=p, exc=exc))
+
+        return True
 
 # derivatives
 class DummyManager(FireWorksRocketLauncherManager):
@@ -358,14 +306,26 @@ class DummyManager(FireWorksRocketLauncherManager):
     def spawn(self):
         """Simple system shell dummy while loop for testing purposes"""
         args = ['while [ True ]; do printf "."; sleep 5; done']
-        self.logger.info("Evoking '{cmd:s}'".format(cmd=' '.join(args)))
+        self.logger.debug("Evoking '{cmd:s}'".format(cmd=' '.join(args)))
         p = subprocess.Popen(args,
             cwd = self.launchpad_loc,
             shell = True,
         )
         outs, errs = p.communicate()
-        self.logger.info("Subprocess exited with return code = {}"
+        self.logger.debug("Subprocess exited with return code = {}"
              .format(p.returncode))
+
+class SSHAgentManager(FireWorksRocketLauncherManager):
+    @property
+    def pidfile_name(self):
+        return ".ssh_tunnel.{local_port:d}:{remote_user:s}@{remote_host:s}:{remote_port:d}.{user:s}@{host:}.pid".format(
+            user=getpass.getuser(), host=socket.gethostname())
+
+class SSHTunnelManager(FireWorksRocketLauncherManager):
+    @property
+    def pidfile_name(self):
+        return ".ssh_tunnel.{local_port:d}:{remote_user:s}@{remote_host:s}:{remote_port:d}.{user:s}@{host:}.pid".format(
+            user=getpass.getuser(), host=socket.gethostname())
 
 # stubs
 class RLaunchManager(FireWorksRocketLauncherManager):
@@ -383,6 +343,17 @@ class RLaunchManager(FireWorksRocketLauncherManager):
     def errfile_name(self):
         return os.path.join(self.logdir_loc,"rlaunch_{:s}.err"
             .format(self.timestamp))
+
+    @property
+    def rlaunch_fworker_file(self):
+        return RLAUNCH_FWORKER_FILE if RLAUNCH_FWORKER_FILE else os.path.join(
+            FW_CONFIG_PREFIX, "{:s}_noqueue_worker.yaml"
+                .format(self.machine.lower()))
+
+    @property
+    def rlaunch_interval(self):
+        return 10  # seconds
+
 
     def spawn(self):
         """spawn rlaunch"""
@@ -405,6 +376,18 @@ class QLaunchManager(FireWorksRocketLauncherManager):
         return ".qlaunch.{user:s}@{host:}.pid".format(
             user=getpass.getuser(), host=socket.gethostname())
 
+    @property
+    def qlaunch_fworker_file(self):
+        return QLAUNCH_FWORKER_FILE if QLAUNCH_FWORKER_FILE else os.path.join(
+            FW_CONFIG_PREFIX, "{:s}_queue_offline_worker.yaml"
+                .format(self.machine.lower()))
+
+    @property
+    def qadapter_file(self):
+        return QADAPTER_FILE if QADAPTER_FILE else os.path.join(
+            FW_CONFIG_PREFIX, "{:s}_{:s}_qadapter_offline.yaml"
+                .format(self.machine.lower(), self.scheduler.lower()))
+
 class RecoverOfflineManager(FireWorksRocketLauncherManager):
     @property
     def pidfile_name(self):
@@ -412,23 +395,57 @@ class RecoverOfflineManager(FireWorksRocketLauncherManager):
             user=getpass.getuser(), host=socket.gethostname())
 
 
-class SSHTunnelManager(FireWorksRocketLauncherManager):
-    @property
-    def pidfile_name(self):
-        return ".ssh_tunnel.{local_port:d}:{remote_user:s}@{remote_host:s}:{remote_port:d}.{user:s}@{host:}.pid".format(
-            user=getpass.getuser(), host=socket.gethostname())
-
+daemon_dict = {
+    'dummy': DummyManager,
+    'rlaunch': RLaunchManager,
+}
 
 # CLI commands pendants
 
-def start_dummy(args=None):
-    fwrlm = DummyManager()
+def start_daemon(args):
+    fwrlm = daemon_dict[ args.daemon ]()
     fwrlm.spawn_daemon()
 
-def start_rlaunch(args=None):
-    fwrlm = RLaunchManager()
-    fwrlm.spawn_daemon()
+def check_daemon_status(args):
+    """Checks status of daemon and exits.
 
+    Returns:
+        int, sys.exit exit code
+        - 0: daemon running
+        - 3: daemon not running
+        - 4: state unknown
+
+    Exit codes follow `systemctl`'s exit codes, see
+    https://www.freedesktop.org/software/systemd/man/systemctl.html#Exit%20status
+    """
+    logger = logging.getLogger(__name__)
+
+    fwrlm = daemon_dict[ args.daemon ]()
+    stat = fwrlm.check_daemon(raise_exc=False)
+    logger.info("{:s} daemon state: '{}'".format(args.daemon, stat))
+    if stat == pid.PID_CHECK_RUNNING:
+        ret = 0  # success, daemon running
+    elif stat in [pid.PID_CHECK_NOFILE, pid.PID_CHECK_NOTRUNNING]:
+        ret = 3  # failure, daemon not running
+    else:  # pid.PID_CHECK_UNREADABLE or pid.PID_CHECK_ACCESSDENIED
+        ret = 4  # failure, state unknown
+    sys.exit(ret)
+
+def stop_daemon(args):
+    logger = logging.getLogger(__name__)
+
+    fwrlm = daemon_dict[ args.daemon ]()
+    try:
+        stat = fwrlm.stop_daemon()
+    except Exception as exc:  # stopping failed
+        logger.exception(exc)
+        sys.exit(4)
+
+    if stat:  # successfully stopped
+        logger.info("Stopped.")
+    else:  # wasn't running anyway
+        logger.info("No daemon running.")
+    sys.exit(0)
 
 def main():
     import argparse
@@ -461,42 +478,45 @@ def main():
         'start', help='Start daemons.',
         formatter_class=ArgumentDefaultsAndRawDescriptionHelpFormatter)
 
-    start_subparsers = start_parser.add_subparsers(
-        help='subcommand', dest='subcommand')
+    start_parser.add_argument('daemon', type=str,
+          help='Daemon name', metavar='DAEMON',
+          choices=set(daemon_dict.keys()))
 
-    # start rlaunch
-    start_rlaunch_parser = start_subparsers.add_parser(
-        'rlaunch', help='Start rlaunch daemon')
+    start_parser.set_defaults(func=start_daemon)
 
-    start_rlaunch_parser.set_defaults(func=start_rlaunch)
+    # status command
+    status_parser = subparsers.add_parser(
+        'status', help='Query daemon status.',
+        formatter_class=ArgumentDefaultsAndRawDescriptionHelpFormatter)
 
-    # start dummy
-    start_dummy_parser = start_subparsers.add_parser(
-        'dummy', help='Start dummy daemon')
+    status_parser.add_argument('daemon', type=str,
+          help='Daemon name', metavar='DAEMON',
+          choices=set(daemon_dict.keys()))
 
-    start_dummy_parser.set_defaults(func=start_dummy)
+    status_parser.set_defaults(func=check_daemon_status)
 
     # stop command
     stop_parser = subparsers.add_parser(
         'stop', help='Stop daemons.',
         formatter_class=ArgumentDefaultsAndRawDescriptionHelpFormatter)
 
-    stop_subparsers = stop_parser.add_subparsers(
-      help='subcommand', dest='subcommand')
+    stop_parser.add_argument('daemon', type=str,
+          help='Daemon name', metavar='DAEMON',
+          choices=set(daemon_dict.keys()))
+
+    stop_parser.set_defaults(func=stop_daemon)
 
     args = parser.parse_args()
 
     # logging
+    logformat  = "%(levelname)s: %(message)s"
     if args.debug:
+        logformat  = "[%(asctime)s-%(funcName)s()-%(filename)s:%(lineno)s] %(levelname)s: %(message)s"
         loglevel = logging.DEBUG
     elif args.verbose:
         loglevel = logging.INFO
     else:
         loglevel = logging.WARNING
-
-    # logformat  = ''.join(("%(asctime)s",
-    #  "[ %(filename)s:%(lineno)s - %(funcName)s() ]: %(message)s"))
-    logformat  = "[ %(filename)s:%(lineno)s - %(funcName)s() ]: %(message)s"
 
     logging.basicConfig(level=loglevel, format=logformat)
 
