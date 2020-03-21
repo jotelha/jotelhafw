@@ -5,7 +5,7 @@ import os
 import sys  # for stdout and stderr
 import datetime  # for generating timestamps
 import logging
-#import pid  # for pidfiles, tested for v3.0.0
+import multiprocessing
 
 from imteksimfw.fireworks.utilities.fwrlm_base import pid
 from imteksimfw.fireworks.utilities.fwrlm import DummyManager, \
@@ -19,12 +19,23 @@ daemon_dict = {
     'recover': LPadRecoverOfflineManager,
 }
 
+daemon_sets = {
+    'all': [ 'ssh','rlaunch','qlaunch','recover' ],
+    'fw':  [ 'rlaunch','qlaunch','recover'],
+    **{ k: [k] for k in daemon_dict.keys() },
+}
+
+EX_OK = 0
+EX_FAILURE = 1
+EX_NOTRUNNING = 3
+EX_UNKNOWN = 4
+
 # CLI commands pendants
-def test_daemon(args):
-    fwrlm = daemon_dict[ args.daemon ]()
+def test_daemon(daemon):
+    fwrlm = daemon_dict[ daemon ]()
     fwrlm.spawn()
 
-def start_daemon(args):
+def start_daemon(daemon):
     """Starts daemon and exits.
 
     Returns:
@@ -34,15 +45,20 @@ def start_daemon(args):
     """
     logger = logging.getLogger(__name__)
 
-    fwrlm = daemon_dict[ args.daemon ]()
+    fwrlm = daemon_dict[ daemon ]()
     try:
-        fwrlm.spawn_daemon()
-        sys.exit(0)
+        p = multiprocessing.Process(target=fwrlm.spawn_daemon)
+        p.start()
+        p.join()
+        ret = EX_OK
     except Exception as exc:
         logger.exception(exc)
-        sys.exit(1)
+        ret = EX_FAILURE
+    else:
+        logger.info("{:s} started.".format(daemon))
+    return ret
 
-def check_daemon_status(args):
+def check_daemon_status(daemon):
     """Checks status of daemon and exits.
 
     Returns:
@@ -56,38 +72,61 @@ def check_daemon_status(args):
     """
     logger = logging.getLogger(__name__)
 
-    fwrlm = daemon_dict[ args.daemon ]()
+    fwrlm = daemon_dict[ daemon ]()
     stat = fwrlm.check_daemon(raise_exc=False)
-    logger.debug("{:s} daemon state: '{}'".format(args.daemon, stat))
+    logger.debug("{:s} daemon state: '{}'".format(daemon, stat))
     if stat == pid.PID_CHECK_RUNNING:
-        logger.info("{:s} running.".format(args.daemon))
-        ret = 0  # success, daemon running
+        logger.info("{:s} running.".format(daemon))
+        ret = EX_OK  # success, daemon running
     elif stat in [pid.PID_CHECK_NOFILE, pid.PID_CHECK_NOTRUNNING]:
-        logger.info("{:s} not running.".format(args.daemon))
-        ret = 3  # failure, daemon not running
+        logger.info("{:s} not running.".format(daemon))
+        ret = EX_NOTRUNNING  # failure, daemon not running
     else:  # pid.PID_CHECK_UNREADABLE or pid.PID_CHECK_ACCESSDENIED
-        logger.warn("{:s} state unknown.".format(args.daemon))
-        ret = 4  # failure, state unknown
-    sys.exit(ret)
+        logger.warn("{:s} state unknown.".format(daemon))
+        ret = EX_UNKNOWN  # failure, state unknown
+    return ret
 
-def stop_daemon(args):
+def stop_daemon(daemon):
     logger = logging.getLogger(__name__)
 
-    fwrlm = daemon_dict[ args.daemon ]()
+    fwrlm = daemon_dict[ daemon ]()
     try:
         stat = fwrlm.stop_daemon()
     except Exception as exc:  # stopping failed
         logger.exception(exc)
-        sys.exit(4)
+        ret = EX_UNKNOWN
+    else:
+        if stat:  # successfully stopped
+            logger.info("{} stopped.".format(daemon))
+        else:  # wasn't running anyway
+            logger.info("{} not running.".format(daemon))
+        ret = EX_OK
+    return ret
 
-    if stat:  # successfully stopped
-        logger.info("Stopped.")
-    else:  # wasn't running anyway
-        logger.info("No daemon running.")
-    sys.exit(0)
+def restart_daemon(daemon):
+    ret = stop_daemon(daemon)
+    if ret == os.EX_OK:
+        ret = start_daemon(daemon)
+    return ret
+
+def act(args, action):
+    logger = logging.getLogger(__name__)
+    daemons = set([d for s in args.daemon for d in daemon_sets[s]])
+    logger.debug("Will evoke '{}' for set [{}]".format(action.__name__,
+        ', '.join(list(daemons))))
+    ret = EX_OK
+    for daemon in daemons:
+        logger.debug("Evoking '{}' for {}".format(action.__name__,daemon))
+        cur_ret = action(daemon)
+        logger.debug("'{}' for {} returned with exit code '{}'".format(
+            action.__name__,daemon,cur_ret))
+        ret = cur_ret if cur_ret > ret else ret
+    sys.exit(ret)
+
 
 def main():
     import argparse
+    multiprocessing.set_start_method('fork')
 
     # in order to have both:
     # * preformatted help text and ...
@@ -117,33 +156,45 @@ def main():
         'start', help='Start daemons.',
         formatter_class=ArgumentDefaultsAndRawDescriptionHelpFormatter)
 
-    start_parser.add_argument('daemon', type=str,
+    start_parser.add_argument('daemon', type=str,nargs='+',
           help='Daemon name', metavar='DAEMON',
-          choices=set(daemon_dict.keys()))
+          choices=set(daemon_sets.keys()))
 
-    start_parser.set_defaults(func=start_daemon)
+    start_parser.set_defaults(func=lambda args: act(args, start_daemon))
 
     # status command
     status_parser = subparsers.add_parser(
         'status', help='Query daemon status.',
         formatter_class=ArgumentDefaultsAndRawDescriptionHelpFormatter)
 
-    status_parser.add_argument('daemon', type=str,
+    status_parser.add_argument('daemon', type=str, nargs='+',
           help='Daemon name', metavar='DAEMON',
-          choices=set(daemon_dict.keys()))
+          choices=set(daemon_sets.keys()))
 
-    status_parser.set_defaults(func=check_daemon_status)
+    status_parser.set_defaults(func=lambda args: act(args, check_daemon_status))
 
     # stop command
     stop_parser = subparsers.add_parser(
         'stop', help='Stop daemons.',
         formatter_class=ArgumentDefaultsAndRawDescriptionHelpFormatter)
 
-    stop_parser.add_argument('daemon', type=str,
+    stop_parser.add_argument('daemon', type=str, nargs='+',
           help='Daemon name', metavar='DAEMON',
-          choices=set(daemon_dict.keys()))
+          choices=set(daemon_sets.keys()))
 
-    stop_parser.set_defaults(func=stop_daemon)
+    stop_parser.set_defaults(func=lambda args: act(args, stop_daemon))
+
+    # start command
+    restart_parser = subparsers.add_parser(
+        'restart', help='Restart daemons.',
+        formatter_class=ArgumentDefaultsAndRawDescriptionHelpFormatter)
+
+    restart_parser.add_argument('daemon', type=str, nargs='+',
+          help='Daemon name', metavar='DAEMON',
+          choices=set(daemon_sets.keys()))
+
+    restart_parser.set_defaults(func=lambda args: act(args, restart_daemon))
+
 
     # test command
     test_parser = subparsers.add_parser(

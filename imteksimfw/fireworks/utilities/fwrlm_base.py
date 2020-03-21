@@ -332,6 +332,7 @@ class FireWorksRocketLauncherManager():
             pidfile=self.pidfile,
             stdout=self.outfile,
             stderr=self.errfile,
+            detach_process=True,
             signal_map = {  # treat a few common signals
                 signal.SIGTERM: self.shutdown,  # otherwise treated in PidFile
                 signal.SIGINT:  self.shutdown,
