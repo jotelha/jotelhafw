@@ -27,7 +27,7 @@ daemon_sets = {
 
 EX_OK = 0
 EX_FAILURE = 1
-EX_NOTRUNNING = 3
+EX_NOTRUNNING = 1
 EX_UNKNOWN = 4
 
 # CLI commands pendants
@@ -64,7 +64,7 @@ def check_daemon_status(daemon):
     Returns:
         int, sys.exit exit code
         - 0: daemon running
-        - 3: daemon not running
+        - 1: daemon not running
         - 4: state unknown
 
     Exit codes follow `systemctl`'s exit codes, see
