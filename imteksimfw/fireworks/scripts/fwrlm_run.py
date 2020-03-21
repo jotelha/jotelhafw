@@ -104,8 +104,10 @@ def stop_daemon(daemon):
     return ret
 
 def restart_daemon(daemon):
+    import time
     ret = stop_daemon(daemon)
     if ret == os.EX_OK:
+        time.sleep(5)
         ret = start_daemon(daemon)
     return ret
 
@@ -230,11 +232,17 @@ def main():
     for h in logger.handlers: logger.removeHandler(h)
 
     # create and append custom handles
-    ch = logging.StreamHandler()
+    stdouth = logging.StreamHandler(sys.stdout)
     formatter = logging.Formatter(logformat)
-    ch.setFormatter(formatter)
-    ch.setLevel(loglevel)
-    logger.addHandler(ch)
+    stdouth.setFormatter(formatter)
+    stdouth.setLevel(loglevel)
+
+    stderrh = logging.StreamHandler(sys.stderr)
+    stderrh.setFormatter(formatter)
+    stderrh.setLevel(logging.WARNING)
+
+    logger.addHandler(stdouth)
+    logger.addHandler(stderrh)
 
     if args.log:
         fh = logging.FileHandler(args.log)
