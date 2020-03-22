@@ -12,8 +12,8 @@
 # copies of the Software, and to permit persons to whom the Software is
 # furnished to do so, subject to the following conditions:
 #
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
 #
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
@@ -22,25 +22,20 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-"""Manages FireWorks rocket launchers and associated scripts as daemons"""
+"""Manages FireWorks rocket launchers and associated scripts as daemons."""
 
-import os
-import signal  # for unix system signal treatment, see
-# https://people.cs.pitt.edu/~alanjawi/cs449/code/shell/UnixSignals.htm
-import sys  # for stdout and stderr
-import daemon  # for detached daemons, tested for v2.2.4
-import datetime  # for generating timestamps
 import getpass  # get username
-import logging
-import pid  # for pidfiles, tested for v3.0.0
-import psutil  # checking process status
+import os
 import socket  # for host name
 import subprocess
+import time
 
-from imteksimfw.fireworks.utilities.fwrlm_base import FireWorksRocketLauncherManager
+from imteksimfw.fireworks.utilities.fwrlm_base \
+    import FireWorksRocketLauncherManager
+
 
 class DummyManager(FireWorksRocketLauncherManager):
-    # generate descriptive pid files:
+    """Testing purpose daemon."""
 
     @property
     def pidfile_name(self):
@@ -61,16 +56,14 @@ class DummyManager(FireWorksRocketLauncherManager):
         """Simple system shell dummy while loop for testing purposes"""
         args = ['while [ True ]; do printf "."; sleep 5; done']
         self.logger.debug("Evoking '{cmd:s}'".format(cmd=' '.join(args)))
-        p = subprocess.Popen(args,
-            cwd = self.launchpad_loc,
-            shell = True,
-        )
+        p = subprocess.Popen(args, cwd=self.launchpad_loc, shell=True)
         outs, errs = p.communicate()
         self.logger.debug("Subprocess exited with return code = {}"
              .format(p.returncode))
 
 
 class SSHTunnelManager(FireWorksRocketLauncherManager):
+    """Permanent SSH tunnel via paramiko daemon."""
     @property
     def pidfile_name(self):
         return (
@@ -87,12 +80,12 @@ class SSHTunnelManager(FireWorksRocketLauncherManager):
 
     @property
     def outfile_name(self):
-        return os.path.join(self.logdir_loc,"ssh_tunnel_{:s}.out"
+        return os.path.join(self.logdir_loc, "ssh_tunnel_{:s}.out"
             .format(self.timestamp))
 
     @property
     def errfile_name(self):
-        return os.path.join(self.logdir_loc,"ssh_tunnel_{:s}.err"
+        return os.path.join(self.logdir_loc, "ssh_tunnel_{:s}.err"
             .format(self.timestamp))
 
     def spawn(self):
@@ -117,26 +110,27 @@ class RLaunchManager(FireWorksRocketLauncherManager):
 
     @property
     def outfile_name(self):
-        return os.path.join(self.logdir_loc,"rlaunch_{:s}.out"
+        return os.path.join(self.logdir_loc, "rlaunch_{:s}.out"
             .format(self.timestamp))
 
     @property
     def errfile_name(self):
-        return os.path.join(self.logdir_loc,"rlaunch_{:s}.err"
+        return os.path.join(self.logdir_loc, "rlaunch_{:s}.err"
             .format(self.timestamp))
 
     def spawn(self):
         """spawn rlaunch"""
-        args = [ 'rlaunch',
-                 '-l', self.fw_auth_file_path,
-                 '-w', self.rlaunch_fworker_file,
-                 '--loglvl', 'DEBUG', 'rapidfire',
-                 '--nlaunches', 'infinite',
-                 '--sleep', self.rlaunch_interval,
-               ]
-        args = [ a if isinstance(a, str) else str(a) for a in args ]
+        args = [
+            'rlaunch',
+            '-l', self.fw_auth_file_path,
+            '-w', self.rlaunch_fworker_file,
+            '--loglvl', 'DEBUG', 'rapidfire',
+            '--nlaunches', 'infinite',
+            '--sleep', self.rlaunch_interval,
+        ]
+        args = [a if isinstance(a, str) else str(a) for a in args]
         self.logger.info("Evoking '{cmd:s}'".format(cmd=' '.join(args)))
-        p = subprocess.Popen(args, cwd = self.launchpad_loc)
+        p = subprocess.Popen(args, cwd=self.launchpad_loc)
         outs, errs = p.communicate()
         self.logger.info("Subprocess exited with return code = {}"
              .format(p.returncode))
@@ -160,17 +154,18 @@ class QLaunchManager(FireWorksRocketLauncherManager):
 
     def spawn(self):
         """spawn qlaunch"""
-        args = [ 'qlaunch','-r',
-                 '-l', self.fw_auth_file_path,
-                 '-w', self.qlaunch_fworker_file,
-                 '-q', self.qadapter_file,
-                 '--loglvl', 'DEBUG', 'rapidfire',
-                 '--nlaunches', 'infinite',
-                 '--sleep', self.qlaunch_interval,
-               ]
-        args = [ a if isinstance(a, str) else str(a) for a in args ]
+        args = [
+            'qlaunch', '-r',
+            '-l', self.fw_auth_file_path,
+            '-w', self.qlaunch_fworker_file,
+            '-q', self.qadapter_file,
+            '--loglvl', 'DEBUG', 'rapidfire',
+            '--nlaunches', 'infinite',
+            '--sleep', self.qlaunch_interval,
+        ]
+        args = [a if isinstance(a, str) else str(a) for a in args]
         self.logger.info("Evoking '{cmd:s}'".format(cmd=' '.join(args)))
-        p = subprocess.Popen(args, cwd = self.launchpad_loc)
+        p = subprocess.Popen(args, cwd=self.launchpad_loc)
         outs, errs = p.communicate()
         self.logger.info("Subprocess exited with return code = {}"
              .format(p.returncode))
@@ -184,29 +179,28 @@ class LPadRecoverOfflineManager(FireWorksRocketLauncherManager):
 
     @property
     def outfile_name(self):
-        return os.path.join(self.logdir_loc,"lpad_recover_offline_{:s}.out"
+        return os.path.join(self.logdir_loc, "lpad_recover_offline_{:s}.out"
             .format(self.timestamp))
 
     @property
     def errfile_name(self):
-        return os.path.join(self.logdir_loc,"lpad_recover_offline_{:s}.err"
+        return os.path.join(self.logdir_loc, "lpad_recover_offline_{:s}.err"
             .format(self.timestamp))
 
     def spawn(self):
         """spawn recover offline loop"""
-        import time
-
-        args = [ 'lpad',
-                 '-l', self.fw_auth_file_path,
-                 'recover_offline',
-                 '-w', self.qlaunch_fworker_file,
-               ]
-        args = [ a if isinstance(a, str) else str(a) for a in args ]
+        args = [
+            'lpad',
+            '-l', self.fw_auth_file_path,
+            'recover_offline',
+            '-w', self.qlaunch_fworker_file,
+        ]
+        args = [a if isinstance(a, str) else str(a) for a in args]
         self.logger.info("Evoking '{cmd:s}' repeatedly in a loop"
             .format(cmd=' '.join(args)))
 
         while True:
-            p = subprocess.Popen(args, cwd = self.launchpad_loc)
+            p = subprocess.Popen(args, cwd=self.launchpad_loc)
             outs, errs = p.communicate()
             self.logger.info("Subprocess exited with return code = {}"
                 .format(p.returncode))

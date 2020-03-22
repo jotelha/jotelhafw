@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""FireWorksRocketLauncherManager configuration"""
+"""FireWorksRocketLauncherManager configuration."""
 
 import os
 import logging
@@ -62,6 +62,7 @@ SCHEDULER = 'SLURM'
 
 
 def override_user_settings():
+    """Read config from standard file (if found) when module imported."""
     logger = logging.getLogger(__name__)
     module_dir = os.path.dirname(os.path.abspath(__file__))
     root_dir = os.path.dirname(module_dir)  # FW root dir
@@ -80,9 +81,8 @@ def override_user_settings():
             config_paths.append(fp)
 
     if FWRLM_CONFIG_FILE_ENV_VAR in os.environ \
-        and os.environ[FWRLM_CONFIG_FILE_ENV_VAR] not in config_paths:
+            and os.environ[FWRLM_CONFIG_FILE_ENV_VAR] not in config_paths:
         config_paths.append(os.environ[FWRLM_CONFIG_FILE_ENV_VAR])
-
 
     if len(config_paths) > 1:
         logger.warn("Found many potential paths for {}: {}"
@@ -97,19 +97,23 @@ def override_user_settings():
                 raise ValueError(
                     'Invalid FWRLM_config file has unknown parameter: {}'
                         .format(key))
-            else:
-                logger.info("Set key : value pair '{}' : '{}'"
-                    .format(key, v))
-                globals()[key] = v
+
+            logger.info("Set key : value pair '{}' : '{}'"
+                .format(key, v))
+            globals()[key] = v
+
 
 def config_to_dict():
+    """Convert config in globals() to dict."""
     d = {}
     for k, v in globals().items():
         if k.upper() == k:
             d[k] = v
     return d
 
+
 def config_keys_to_list():
+    """Convert config keys in globals() to list."""
     l = []
     for k in globals().keys():
         if k.upper() == k:
@@ -118,10 +122,16 @@ def config_keys_to_list():
 
 
 def write_config(path=None):
-    path = os.path.join(FWRLM_CONFIG_FILE_DIR, FWRLM_CONFIG_FILE_NAME) if path is None else path
+    """Write config key: value dict to file."""
+    path = os.path.join(
+        FWRLM_CONFIG_FILE_DIR,
+        FWRLM_CONFIG_FILE_NAME) if path is None else path
     monty.serialization.dumpfn(config_to_dict(), path)
 
+
 def write_config_keys(path):
+    """Write list of config keys to file."""
     monty.serialization.dumpfn(config_keys_to_list(), path)
+
 
 override_user_settings()

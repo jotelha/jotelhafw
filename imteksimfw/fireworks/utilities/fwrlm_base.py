@@ -12,8 +12,8 @@
 # copies of the Software, and to permit persons to whom the Software is
 # furnished to do so, subject to the following conditions:
 #
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
 #
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
@@ -22,20 +22,18 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-"""Manages FireWorks rocket launchers and associated scripts as daemons"""
+"""Manages FireWorks rocket launchers and associated scripts as daemons."""
 
+import datetime  # for generating timestamps
+import logging
 import os
 import signal  # for unix system signal treatment, see
 # https://people.cs.pitt.edu/~alanjawi/cs449/code/shell/UnixSignals.htm
 import sys  # for stdout and stderr
+
 import daemon  # for detached daemons, tested for v2.2.4
-import datetime  # for generating timestamps
-import getpass  # get username
-import logging
 import pid  # for pidfiles, tested for v3.0.0
 import psutil  # checking process status
-import socket  # for host name
-import subprocess
 
 from imteksimfw.fireworks.fwrlm_config import \
   FW_CONFIG_PREFIX, FW_CONFIG_FILE_NAME, FW_AUTH_FILE_NAME, \
@@ -44,15 +42,17 @@ from imteksimfw.fireworks.fwrlm_config import \
   FIREWORKS_DB, FIREWORKS_USER, FIREWORKS_PWD, \
   SSH_HOST, SSH_USER, SSH_TUNNEL, SSH_KEY, USE_RSTUNNEL, RSTUNNEL_CONFIG, \
   RECOVER_OFFLINE, RLAUNCH_FWORKER_FILE, QLAUNCH_FWORKER_FILE, QADAPTER_FILE, \
-  MULTI_RLAUNCH_NTASKS,  OMP_NUM_THREADS, FWGUI_PORT
+  MULTI_RLAUNCH_NTASKS, OMP_NUM_THREADS, FWGUI_PORT
 
 # define custom error codes
 pid.PID_CHECK_UNREADABLE = "PID_CHECK_UNREADABLE"
 pid.PID_CHECK_ACCESSDENIED = "PID_CHECK_ACCESSDENIED"
 pid.PID_CHECK_RUNNING = "PID_CHECK_RUNNING"
 
+
 class FireWorksRocketLauncherManager():
-    """Base class for managing FireWorks-related daemons"""
+    """Base class for managing FireWorks-related daemons."""
+
     @property
     def fw_config_prefix(self):
         return FW_CONFIG_PREFIX
@@ -146,7 +146,6 @@ class FireWorksRocketLauncherManager():
     def ssh_port(self):
         return 22
 
-
     @property
     def timestamp(self):
         return self._launchtime.strftime('%Y%m%d%H%M%S%f')
@@ -209,9 +208,9 @@ class FireWorksRocketLauncherManager():
             sys.exit(0)
 
     def get_pid(self):
-        pidfile_path = os.path.join(self.piddir,self.pidfile_name)
+        pidfile_path = os.path.join(self.piddir, self.pidfile_name)
         if not os.path.exists(pidfile_path):
-            raise PidFileUnreadableError(
+            raise pid.PidFileUnreadableError(
                 "{} does not exist.".format(pidfile_path))
 
         with open(pidfile_path, "r") as f:
@@ -230,7 +229,7 @@ class FireWorksRocketLauncherManager():
         Args:
             raise_exc (bool): If true, only returns successfully either with
                               `PID_CHECK_NOFILE` or `PID_CHECK_NOTRUNNING` if
-                              no running process was found, otherwise raises 
+                              no running process was found, otherwise raises
                               exceptions (see below). If false, always returns
                               with more specific code (default: True).
         Returns:
@@ -257,7 +256,7 @@ class FireWorksRocketLauncherManager():
             psutil.AccessDenied
 
         """
-        pidfile_path = os.path.join(self.piddir,self.pidfile_name)
+        pidfile_path = os.path.join(self.piddir, self.pidfile_name)
         if not os.path.exists(pidfile_path):
             self.logger.debug("{} does not exist.".format(pidfile_path))
             return pid.PID_CHECK_NOFILE
@@ -292,7 +291,8 @@ class FireWorksRocketLauncherManager():
             else:
                 return pid.PID_CHECK_ACCESSDENIED
 
-        self.logger.debug("PID '{:d}' command line '{}'".format(p,' '.join(cmd)))
+        self.logger.debug("PID '{:d}' command line '{}'"
+            .format(p, ' '.join(cmd)))
 
         # this warning is somewhat obsolete
         if cmd != self.command_line:
@@ -300,7 +300,8 @@ class FireWorksRocketLauncherManager():
             self.logger.debug("")
             self.logger.debug("    {:s}".format(' '.join(cmd)))
             self.logger.debug("")
-            self.logger.debug("  does not agree with current process command line")
+            self.logger.debug(
+                "  does not agree with current process command line")
             self.logger.debug("")
             self.logger.debug("    {:s}".format(' '.join(self.command_line)))
             self.logger.debug("")
@@ -333,14 +334,14 @@ class FireWorksRocketLauncherManager():
             stdout=self.outfile,
             stderr=self.errfile,
             detach_process=True,
-            signal_map = {  # treat a few common signals
+            signal_map={  # treat a few common signals
                 signal.SIGTERM: self.shutdown,  # otherwise treated in PidFile
                 signal.SIGINT:  self.shutdown,
                 signal.SIGHUP:  self.shutdown,
             })
         try:
             d.open()
-        except pid.PidFileError as e:  #pid.base.PidFileAlreadyLockedError as e:
+        except pid.PidFileError as e:
             self.logger.error(e)
             raise e
 
