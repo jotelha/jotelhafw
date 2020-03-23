@@ -1,0 +1,63 @@
+# forhlr2_slurm_qadapter.yaml
+#
+# Copyright (C) 2020 IMTEK Simulation
+# Author: Johannes Hoermann, johannes.hoermann@imtek.uni-freiburg.de
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+# machine specs
+#   refer to https://wiki.scc.kit.edu/hpc/index.php/Batch_Jobs_Slurm-_ForHLR_Features#sbatch_-p_queue
+# 20 cores / node
+#
+# available partitions ForHLR II:
+# queue         node  default resources                                           minimum   maximum resources
+#                                                                                 resources
+# develop       thin  time=10, ntasks=1, mem=63720mb, mem-per-cpu=3186mb          nodes=1   time=60, nodes=4, ntasks-per-node=20, 4 nodes are reserved for this queue, Only for development, i.e. debugging or performance optimization ...
+# develop-visu  fat   time=10, ntasks=1, mem=1029963mb, mem-per-cpu=21457mb       nodes=1   time=120, nodes=1, ntasks-per-node=48, 1 node is reserved for this queue, Only for development, i.e. debugging or performance optimization ...
+# normal        thin  walltime=10, ntasks=1, mem=63720mb, mem-per-cpu=3186mb      nodes=1   time=3-00:00:00, nodes=256, ntasks-per-node=20
+# long          thin  time=3-00:00:01, ntasks=1, mem=63720mb, mem-per-cpu=3186mb  nodes=1   time=7-00:00:00, nodes=64, ntasks-per-node=20
+# xnodes        thin  time=10, ntasks=257, mem=63720mb, mem-per-cpu=3186mb        nodes=257 time=3-00:00:00, nodes=512, ntasks-per-node=20
+# visu          visu  time=10, ntasks=1, mem=1029963mb, mem-per-cpu=21457mb       nodes=1   time=3-00:00:00, nodes=4, ntasks-per-node=48
+
+_fw_name: CommonAdapter
+_fw_q_type: SLURM
+_fw_template_file: {{ FW_CONFIG_PREFIX }}/forhlr2_slurm_submit_script.template
+rocket_launch: rlaunch -w {{ FW_CONFIG_PREFIX }}/forhlr2_queue_worker.yaml -l {{ FW_CONFIG_PREFIX }}/{{ FW_AUTH_FILE_NAME }} singleshot --offline
+ntasks: 80
+# cpus_per_task: 1
+ntasks_per_node: 20
+walltime: '24:00:00' # maximum on FORHLR 2: 72 h
+queue: normal
+account: null
+job_name: null
+# logdir: path/to/logging
+pre_rocket: source ${HOME}/.fireworks_env
+post_rocket: null
+# send signal SIGTERM 60 seconds before end of walltime
+signal: '15@60'
+# export: 'OMP_NUM_THREADS=1,KMP_AFFINITY="compact,1,0",KMP_BLOCKTIME=0,I_MPI_PIN_DOMAIN=core'
+export: NONE
+
+# You can override commands by uncommenting and changing the following lines:
+# _q_commands_override:
+#    submit_cmd: my_qsubmit
+#    status_cmd: my_qstatus
+
+#You can also supply your own template by uncommenting and changing the following line:
+#template_file: /full/path/to/template

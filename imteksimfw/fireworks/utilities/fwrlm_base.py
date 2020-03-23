@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 #
 # fwrlm_base.py
 #
@@ -40,9 +40,9 @@ from imteksimfw.fireworks.fwrlm_config import \
   LAUNCHPAD_LOC, LOGDIR_LOC, MACHINE, SCHEDULER, \
   MONGODB_HOST, MONGODB_PORT_REMOTE, MONGODB_PORT_LOCAL, \
   FIREWORKS_DB, FIREWORKS_USER, FIREWORKS_PWD, \
-  SSH_HOST, SSH_USER, SSH_TUNNEL, SSH_KEY, USE_RSTUNNEL, RSTUNNEL_CONFIG, \
-  RECOVER_OFFLINE, RLAUNCH_FWORKER_FILE, QLAUNCH_FWORKER_FILE, QADAPTER_FILE, \
-  MULTI_RLAUNCH_NTASKS, OMP_NUM_THREADS, FWGUI_PORT
+  SSH_HOST, SSH_USER, SSH_KEY, \
+  RLAUNCH_FWORKER_FILE, QLAUNCH_FWORKER_FILE, QADAPTER_FILE, \
+  WEBGUI_USERNAME, WEBGUI_PASSWORD, WEBGUI_PORT
 
 # define custom error codes
 pid.PID_CHECK_UNREADABLE = "PID_CHECK_UNREADABLE"
@@ -53,6 +53,12 @@ pid.PID_CHECK_RUNNING = "PID_CHECK_RUNNING"
 class FireWorksRocketLauncherManager():
     """Base class for managing FireWorks-related daemons."""
 
+    # The whole purpose of the following list of properties is to make
+    # derivatives agnostic of the actual config mechanism in fwrlm_config
+    # (reading key-value pairs from file, setting globals, importing here).
+    # Someone might want to change that one day.
+
+    # general properties
     @property
     def fw_config_prefix(self):
         return FW_CONFIG_PREFIX
@@ -113,6 +119,19 @@ class FireWorksRocketLauncherManager():
     @property
     def lpad_recover_offline_interval(self):
         return 10  # seconds
+
+    # webgui related properties
+    @property
+    def webgui_port(self):
+        return WEBGUI_PORT
+
+    @property
+    def webgui_username(self):
+        return WEBGUI_USERNAME
+
+    @property
+    def webgui_password(self):
+        return WEBGUI_PASSWORD
 
     # ssh related properties
 

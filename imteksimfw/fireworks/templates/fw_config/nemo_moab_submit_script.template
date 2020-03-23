@@ -1,0 +1,75 @@
+#!/bin/bash
+#
+# nemo_moab_submit_script.template
+#
+# Copyright (C) 2020 IMTEK Simulation
+# Author: Johannes Hoermann, johannes.hoermann@imtek.uni-freiburg.de
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+#MSUB -v OMP_NUM_THREADS=1
+#MSUB -N $${job_name}
+#MSUB -l nodes=$${nodes}:ppn=$${ppn}
+#MSUB -l walltime=$${walltime}
+#MSUB -l pmem=5000mb
+#MSUB -l partition=torque
+#MSUB -j $${stdout_stderr}
+#MSUB -q $${queue}
+#MSUB -A $${account}
+#MSUB -N $${job_name}
+
+# if possible, map tasks by socket
+MAP_BY=socket
+if [[ $((10 % $OMP_NUM_THREADS)) != 0 ]]; then
+  echo "Allow tasks to distribute threads across different sockets, map by node."
+  MAP_BY=node
+fi
+
+TASK_COUNT=$((${MOAB_PROCCOUNT}/${OMP_NUM_THREADS}))
+MPI_PPN_COUNT=$((${PBS_NUM_PPN}/${OMP_NUM_THREADS}))
+MPIRUN_OPTIONS="--bind-to core --map-by $MAP_BY:PE=${OMP_NUM_THREADS}"
+MPIRUN_OPTIONS="${MPIRUN_OPTIONS} -n ${TASK_COUNT} --report-bindings"
+
+export MPIRUN_OPTIONS
+export MOAB_NODECOUNT=$PBS_NUM_NODES
+
+printf '%*s\n' "${COLUMNS:-$(tput cols)}" '' | tr ' ' -
+printenv
+
+printf '%*s\n' "${COLUMNS:-$(tput cols)}" '' | tr ' ' -
+
+echo -e "job id \t\t ${MOAB_JOBID}"
+echo -e "job name \t ${MOAB_JOBNAME}"
+echo -e "#nodes \t\t ${MOAB_NODECOUNT}" # usually empty
+echo -e "#nodes (pbs)\t ${PBS_NUM_NODES}" # reliable
+echo -e "#cores \t\t ${MOAB_PROCCOUNT}" # total number of cores
+echo -e "#tasks \t\t ${TASK_COUNT}"
+echo -e "#tasks (pbs)\t ${PBS_TASKNUM}" # just 1
+echo -e "#threads \t ${OMP_NUM_THREADS}"
+echo -e "#ppn \t\t ${PBS_NUM_PPN}"
+echo -e "nodes \t\t ${MOAB_NODELIST}"
+echo -e "pbs dir \t ${PBS_O_WORKDIR}"
+
+printf '%*s\n' "${COLUMNS:-$(tput cols)}" '' | tr ' ' -
+
+$${pre_rocket}
+cd $${launch_dir}
+$${rocket_launch}
+# the mpirun command must use ${MPIRUN_OPTIONS}
+$${post_rocket}

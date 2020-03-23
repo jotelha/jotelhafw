@@ -1,0 +1,123 @@
+name: nemo_noqueue_worker
+category: [ 'nemo_noqueue' ]
+query: '{}'
+env:
+  lmp: module purge;
+      module use /work/ws/nemo/fr_lp1029-IMTEK_SIMULATION-0/modulefiles;
+      module load lammps/16Mar18-gnu-7.3-openmpi-3.1-colvars-09Feb19;
+      lmp
+  exchange_substrate.py: module purge;
+      module use /work/ws/nemo/fr_lp1029-IMTEK_SIMULATION-0/modulefiles;
+      module load mdtools ovitos;
+      exchange_substrate.py
+  extract_bb.py: module purge;
+      module use /work/ws/nemo/fr_lp1029-IMTEK_SIMULATION-0/modulefiles;
+      module load mdtools/12Mar19-python-2.7;
+      extract_bb.py
+  extract_indenter_nonindenter_forces_from_netcdf.py: module purge;
+      module use /work/ws/nemo/fr_lp1029-IMTEK_SIMULATION-0/modulefiles;
+      module load mdtools/11Jul19;
+      extract_indenter_nonindenter_forces_from_netcdf.py
+  extract_property.py: module purge;
+      module use /work/ws/nemo/fr_lp1029-IMTEK_SIMULATION-0/modulefiles;
+      module load mdtools ovitos;
+      extract_property.py
+  extract_thermo.sh: module purge;
+      module use /work/ws/nemo/fr_lp1029-IMTEK_SIMULATION-0/modulefiles;
+      module load mdtools;
+      extract_thermo.sh
+  join_thermo.py: module purge;
+      module use /work/ws/nemo/fr_lp1029-IMTEK_SIMULATION-0/modulefiles;
+      module load mdtools;
+      join_thermo.py
+  merge.py: module purge;
+      module use /work/ws/nemo/fr_lp1029-IMTEK_SIMULATION-0/modulefiles;
+      module load mdtools/12Mar19-python-2.7;
+      merge.py
+  ncfilter.py: module purge;
+      module use /work/ws/nemo/fr_lp1029-IMTEK_SIMULATION-0/modulefiles;
+      module load mdtools/11Jul19;
+      ncfilter.py
+  ncjoin.py: module purge;
+      module use /work/ws/nemo/fr_lp1029-IMTEK_SIMULATION-0/modulefiles;
+      module load mdtools;
+      ncjoin.py
+  netcdf2data.py: module purge;
+      module use /work/ws/nemo/fr_lp1029-IMTEK_SIMULATION-0/modulefiles;
+      module load mdtools ovitos;
+      netcdf2data.py
+  pizza.py: module purge;
+      module use /work/ws/nemo/fr_lp1029-IMTEK_SIMULATION-0/modulefiles;
+      module load mdtools/12Mar19-python-2.7;
+      pizza.py
+  strip_comments.py: module purge;
+      module use /work/ws/nemo/fr_lp1029-IMTEK_SIMULATION-0/modulefiles;
+      module load mdtools/12Mar19-python-2.7;
+      strip_comments.py
+  to_hybrid.py: module purge;
+      module use /work/ws/nemo/fr_lp1029-IMTEK_SIMULATION-0/modulefiles;
+      module load mdtools;
+      to_hybrid.py
+  vmd: module purge;
+      module use /work/ws/nemo/fr_lp1029-IMTEK_SIMULATION-0/modulefiles;
+      module load jlhvmd;
+      vmd
+  smbsync.py: module purge;
+      module use /work/ws/nemo/fr_lp1029-IMTEK_SIMULATION-0/modulefiles;
+      module load mdtools;
+      smbsync.py
+
+  python:
+    init:
+    - 'import sys, os'
+    - 'sys.path.insert(0, os.path.join(os.environ["MODULESHOME"], "init"))'
+    - 'from env_modules_python import module'
+    - 'module("use","/work/ws/nemo/fr_lp1029-IMTEK_SIMULATION-0/modulefiles")'
+    cmd:
+      lmp:
+        init: 'module("load","lammps/16Mar18-gnu-7.3-openmpi-3.1-colvars-09Feb19")'
+        
+      exchange_substrate.py:
+        init: 'module("load","mdtools","ovitos")'
+      
+      extract_bb.py: 
+        init: 'module("load","mdtools/12Mar19-python-2.7")'
+
+      extract_indenter_nonindenter_forces_from_netcdf.py:
+        init: 'module("load","mdtools/11Jul19")'
+
+      extract_property.py:
+        init: 'module("load","mdtools","ovitos")'
+      
+      extract_thermo.sh:
+        init: 'module("load","mdtools")'
+
+      join_thermo.py:
+        init: 'module("load","mdtools")'
+ 
+      merge.py:
+        init: 'module("load","mdtools/12Mar19-python-2.7")'
+  
+      ncfilter.py:
+        init: 'module("load","mdtools/11Jul19")'
+      
+      ncjoin.py:
+        init: 'module("load","mdtools")'
+  
+      netcdf2data.py: 
+        init: 'module("load","mdtools","ovitos")'
+
+      pizza.py:
+        init: 'module("load","mdtools/12Mar19-python-2.7")'
+  
+      strip_comments.py:
+        init: 'module("load","mdtools/12Mar19-python-2.7")'
+  
+      to_hybrid.py:
+        init: 'module("load","mdtools")'
+
+      vmd:
+        init: 'module("load","jlhvmd")'
+
+      smbsync.py:
+        init: 'module("load","mdtools")'

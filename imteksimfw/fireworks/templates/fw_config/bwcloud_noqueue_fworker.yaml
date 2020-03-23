@@ -1,0 +1,104 @@
+name: bwcloud_std_fworker
+category: [ 'bwcloud_std', 'bwcloud_noqueue' ]
+query: '{}'
+env:
+  exchange_substrate.py: module purge;
+        module load MDTools Ovito;
+        exchange_substrate.py
+  extract_bb.py: module purge;
+        module load MDTools-Python-2.7;
+        extract_bb.py
+  extract_indenter_nonindenter_forces_from_netcdf.py: module purge;
+        module load MDTools;
+        extract_indenter_nonindenter_forces_from_netcdf.py
+  extract_bb.py: module purge;
+        module load MDTools-Python-2.7;
+        extract_pp.py
+  extract_property.py: module purge;
+        module load MDTools;
+        module load Ovito;
+        extract_property.py
+  extract_thermo.sh: module purge;
+        module load MDTools;
+        extract_thermo.sh
+  join_thermo.py: module purge;
+        module load MDTools;
+        join_thermo.py
+  lmp:  module purge;
+        module load LAMMPS;
+        mpirun -n 1 lmp
+  ncjoin.py: module purge;
+        module load MDTools;
+        ncjoin.py
+  pdb_chain.py: module purge;
+        module load MDTools;
+        pdb_chain.py
+  pizza.py: module purge;
+        module load MDTools-Python-2.7;
+        pizza.py
+  strip_comments.py: module purge;
+        module load MDTools-Python-2.7;
+        strip_comments.py
+  to_hybrid.py: module purge;
+        module load MDTools-Python-2.7;
+        to_hybrid.py
+  vmd:  module purge;
+        module load VMD;
+        vmd
+  smbsync.py: module purge;
+       module load MDTools;
+       smbsync.py
+
+  python:
+    init:
+    - 'import sys, os'
+    - 'sys.path.insert(0, os.path.join(os.environ["MODULESHOME"], "init"))'
+    - 'from env_modules_python import module'
+    cmd:
+      lmp:
+        init: 'module("load","LAMMPS")'
+
+      exchange_substrate.py:
+        init: 'module("load","MDTools","Ovito")'
+
+      extract_bb.py:
+        init: 'module("load","MDTools-Python-2.7")'
+
+      extract_indenter_nonindenter_forces_from_netcdf.py:
+        init: 'module("load","MDTools")'
+
+      extract_property.py:
+        init: 'module("load","MDTools","Ovito")'
+
+      extract_thermo.sh:
+        init: 'module("load","MDTools")'
+
+      join_thermo.py:
+        init: 'module("load","MDTools")'
+
+      merge.py:
+        init: 'module("load","MDTools-Python-2.7")'
+
+      ncfilter.py:
+        init: 'module("load","MDTools/11Jul19")'
+
+      ncjoin.py:
+        init: 'module("load","MDTools")'
+
+      netcdf2data.py:
+        init: 'module("load","MDTools","Ovito")'
+
+      pizza.py:
+        init: 'module("load","MDTools-Python-2.7")'
+
+      strip_comments.py:
+        init: 'module("load","MDTools-Python-2.7")'
+
+      to_hybrid.py:
+        init: 'module("load","MDTools")'
+
+      vmd:
+        init: 'module("load","VMD")'
+
+      smbsync.py:
+        init: 'module("load","MDTools")'

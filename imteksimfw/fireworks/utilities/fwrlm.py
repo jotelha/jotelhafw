@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 #
 # fwrlm.py
 #
@@ -64,6 +64,7 @@ class DummyManager(FireWorksRocketLauncherManager):
 
 class SSHTunnelManager(FireWorksRocketLauncherManager):
     """Permanent SSH tunnel via paramiko daemon."""
+
     @property
     def pidfile_name(self):
         return (
@@ -89,7 +90,7 @@ class SSHTunnelManager(FireWorksRocketLauncherManager):
             .format(self.timestamp))
 
     def spawn(self):
-        """SSH forward based on FWRLM_config.yaml settings"""
+        """SSH forward based on FWRLM_config.yaml settings."""
         from imteksimfw.fireworks.utilities.ssh_forward import forward
         forward(
             remote_host = self.remote_host,
@@ -103,6 +104,8 @@ class SSHTunnelManager(FireWorksRocketLauncherManager):
 
 
 class RLaunchManager(FireWorksRocketLauncherManager):
+    """FireWorks rlaunch daemon."""
+
     @property
     def pidfile_name(self):
         return ".rlaunch.{user:s}@{host:}.pid".format(
@@ -119,7 +122,7 @@ class RLaunchManager(FireWorksRocketLauncherManager):
             .format(self.timestamp))
 
     def spawn(self):
-        """spawn rlaunch"""
+        """Spawn rlaunch."""
         args = [
             'rlaunch',
             '-l', self.fw_auth_file_path,
@@ -137,6 +140,8 @@ class RLaunchManager(FireWorksRocketLauncherManager):
 
 
 class QLaunchManager(FireWorksRocketLauncherManager):
+    """FireWorks qlaunch daemon."""
+
     @property
     def pidfile_name(self):
         return ".qlaunch.{user:s}@{host:}.pid".format(
@@ -153,7 +158,7 @@ class QLaunchManager(FireWorksRocketLauncherManager):
             .format(self.timestamp))
 
     def spawn(self):
-        """spawn qlaunch"""
+        """Spawn qlaunch."""
         args = [
             'qlaunch', '-r',
             '-l', self.fw_auth_file_path,
@@ -172,6 +177,8 @@ class QLaunchManager(FireWorksRocketLauncherManager):
 
 
 class LPadRecoverOfflineManager(FireWorksRocketLauncherManager):
+    """FireWorks recover offline loop daemon."""
+
     @property
     def pidfile_name(self):
         return ".lpad_recover_offline.{user:s}@{host:}.pid".format(
@@ -188,7 +195,7 @@ class LPadRecoverOfflineManager(FireWorksRocketLauncherManager):
             .format(self.timestamp))
 
     def spawn(self):
-        """spawn recover offline loop"""
+        """Spawn recover offline loop."""
         args = [
             'lpad',
             '-l', self.fw_auth_file_path,
@@ -205,3 +212,38 @@ class LPadRecoverOfflineManager(FireWorksRocketLauncherManager):
             self.logger.info("Subprocess exited with return code = {}"
                 .format(p.returncode))
             time.sleep(self.lpad_recover_offline_interval)
+
+
+class LPadWebGuiManager(FireWorksRocketLauncherManager):
+    """FireWorks web gui daemon."""
+    @property
+    def pidfile_name(self):
+        return ".lpad_webgui.{user:s}@{host:}:{port:}.pid".format(
+            user=getpass.getuser(),
+            host=socket.gethostname(),
+            port=self.webgui_port)
+
+    @property
+    def outfile_name(self):
+        return os.path.join(self.logdir_loc,"webgui_{:s}.out"
+            .format(self.timestamp))
+
+    @property
+    def errfile_name(self):
+        return os.path.join(self.logdir_loc,"webgui_{:s}.err"
+            .format(self.timestamp))
+
+    def spawn(self):
+        """Spawn webgui."""
+        args = [
+            'lpad', 'webgui',
+            '--server_mode', '--nworkers', 1,
+            '--webgui_username', self.webgui_username,
+            '--webgui_password', self.webgui_password,
+        ]
+        args = [a if isinstance(a, str) else str(a) for a in args]
+        self.logger.info("Evoking '{cmd:s}'".format(cmd=' '.join(args)))
+        p = subprocess.Popen(args, cwd=self.launchpad_loc)
+        outs, errs = p.communicate()
+        self.logger.info("Subprocess exited with return code = {}"
+             .format(p.returncode))

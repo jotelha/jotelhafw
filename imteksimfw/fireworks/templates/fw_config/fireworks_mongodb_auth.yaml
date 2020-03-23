@@ -1,0 +1,14 @@
+host: {{ MONGODB_HOST }}
+logdir: {{ LOGDIR_LOC }}
+name: {{ FIREWORKS_DB }}
+password: {{ FIREWORKS_PWD }}
+port: {{ MONGODB_PORT_LOCAL }}
+ssl: false
+ssl_ca_certs: null
+ssl_certfile: null
+ssl_keyfile: null
+ssl_pem_passphrase: null
+strm_lvl: INFO
+user_indices: []
+username: {{ FIREWORKS_USER }}
+wf_user_indices: []

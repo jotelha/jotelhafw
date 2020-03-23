@@ -1,4 +1,27 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
+#
+# fwrlm_run.py
+#
+# Copyright (C) 2020 IMTEK Simulation
+# Author: Johannes Hoermann, johannes.hoermann@imtek.uni-freiburg.de
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
 """Manages FireWorks rocket launchers and associated scripts as daemons"""
 
 import os
@@ -8,7 +31,8 @@ import multiprocessing
 
 from imteksimfw.fireworks.utilities.fwrlm_base import pid
 from imteksimfw.fireworks.utilities.fwrlm import DummyManager, \
-    RLaunchManager, QLaunchManager, LPadRecoverOfflineManager, SSHTunnelManager
+    RLaunchManager, QLaunchManager, LPadRecoverOfflineManager, \
+    LPadWebGuiManager, SSHTunnelManager
 
 daemon_dict = {
     'dummy': DummyManager,
@@ -16,10 +40,12 @@ daemon_dict = {
     'rlaunch': RLaunchManager,
     'qlaunch': QLaunchManager,
     'recover': LPadRecoverOfflineManager,
+    'webgui': LPadWebGuiManager,
 }
 
 daemon_sets = {
-    'all': ['ssh', 'rlaunch', 'qlaunch', 'recover'],
+    'all': ['ssh', 'rlaunch', 'qlaunch', 'recover', 'webgui'],
+    'remote_worker': ['ssh', 'rlaunch', 'qlaunch', 'recover'],
     'fw':  ['rlaunch', 'qlaunch', 'recover'],
     **{k: [k] for k in daemon_dict.keys()},
 }
@@ -70,7 +96,8 @@ def check_daemon_status(daemon):
         - 1: daemon not running
         - 4: state unknown
 
-    Exit codes follow `systemctl`'s exit codes, see
+    Exit codes follow `systemctl`'s exit codes with the exception of
+    1 for a non-running daemon instead of 3, see
     https://www.freedesktop.org/software/systemd/man/systemctl.html#Exit%20status
     """
     logger = logging.getLogger(__name__)
@@ -94,7 +121,7 @@ def stop_daemon(daemon):
     """Stop daemon and exit."""
     logger = logging.getLogger(__name__)
 
-    fwrlm = daemon_dict[ daemon ]()
+    fwrlm = daemon_dict[daemon]()
     try:
         stat = fwrlm.stop_daemon()
     except Exception as exc:  # stopping failed

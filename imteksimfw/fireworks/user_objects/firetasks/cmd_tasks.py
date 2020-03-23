@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 """Enhanced script task."""
 
+import logging
+import os
 import subprocess
 import sys
 
@@ -155,8 +157,180 @@ class CmdTask(ScriptTask):
         'opt', 'env',
         'stdin_file', 'stdin_key',
         'stdout_file', 'stderr_file', 'store_stdout', 'store_stderr',
-        'shell_exe', 'defuse_bad_rc', 'fizzle_bad_rc']
+        'use_shell', 'shell_exe', 'defuse_bad_rc', 'fizzle_bad_rc']
     _fw_name = 'CmdTask'
+
+    @property
+    def args(self):
+        return [a if isinstance(a, basestring) else str(a) for a in self._args]
+
+    def _parse_global_init_block(self, fw_spec):
+        """Parse global init block."""
+        # _fw_env : env : init may provide a list of python commans
+        # to run, i.e. for module env initialization
+        if "init" in fw_spec["_fw_env"][self.env]:
+            init = fw_spec["_fw_env"][self.env]["init"]
+            if isinstance(init, basestring):
+                init = [init]
+            assert isinstance(init, list)
+            for cmd in init:
+                exec(cmd)
+        else:
+            pass  # no particular initialization for this environment
+
+    def _parse_global_env_block(self, fw_spec):
+        """Parse global envronment block."""
+        # per default, process inherits current environment
+        self.modenv = os.environ.copy()
+        # modify environment before call if desired
+        if "env" in fw_spec["_fw_env"][self.env]:
+            env_dict = fw_spec["_fw_env"][self.env]["env"]
+            if not isinstance(env_dict, dict):
+                raise ValueError(
+                    "type({}) = {} of 'env' not accepted, must be dict!"
+                        .format(env_dict, type(env_dict)))
+
+            # so far, only simple overrides, no pre- or appending
+            for i, (key, value) in enumerate(env_dict):
+                self.logger.info("Set env var '{:s}' = '{:s}'.".format(
+                    key, value))
+            self.modenv[str(key)] = str(value)
+
+    def _parse_cmd_init_block(self, fw_spec):
+        """Parse per-command init block."""
+        cmd_block = fw_spec["_fw_env"][self.env]["cmd"][self.cmd]
+        if "init" in cmd_block:
+            init = cmd_block["init"]
+            if isinstance(init, basestring):
+                init = [init]
+            assert isinstance(init, list), "'init' must be str or list"
+            for cmd in init:
+                self.logger.info("Execute '{:s}'.".format(cmd))
+                exec(cmd)
+        else:
+            pass  # no specific initialization for this command
+
+    def _parse_cmd_substitute_block(self, fw_spec):
+        """Parse per-command substitute block."""
+        cmd_block = fw_spec["_fw_env"][self.env]["cmd"][self.cmd]
+        if "substitute" in cmd_block:
+            substitute = cmd_block["substitute"]
+            assert isinstance(substitute, basestring), "substitute must be str"
+            self.logger.info("Substitute '{:s}' with '{:s}'.".format(
+                self.cmd, substitute))
+            self._args.append(substitute)
+        else:  # otherwise just use command as specified
+            self._args.append(self.cmd)
+
+    def _parse_cmd_prefix_block(self, fw_spec):
+        """Parse per-command prefix block."""
+        cmd_block = fw_spec["_fw_env"][self.env]["cmd"][self.cmd]
+        # prepend machine-specific prefixes to command
+        if "prefix" in cmd_block:
+            prefix_list = cmd_block["prefix"]
+            if not isinstance(prefix_list, list):
+                prefix_list = [prefix_list]
+
+            processed_prefix_list = []
+            for i, prefix in enumerate(prefix_list):
+                processed_prefix = []
+                # a prefix dict allow for something like this:
+                #    cmd:
+                #      lmp:
+                #        init:   'module("load","lammps")'
+                #        prefix: [ 'mpirun', { 'eval': 'os.environ["MPIRUN_OPTIONS"]' } ]
+                if isinstance(prefix, dict):
+                    # special treatment desired for this prefix
+                    if "eval" in prefix:
+                        self.logger.info("Evaluate prefix '{:s}'.".format(
+                            ' '.join(prefix["eval"])))
+                        # evaluate prefix in current context
+                        processed_prefix = eval(prefix["eval"])
+                        try:
+                            processed_prefix = processed_prefix.decode("utf-8")
+                        except AttributeError:
+                            pass
+                        if isinstance(processed_prefix, basestring):
+                            processed_prefix = processed_prefix.split()
+                        else:
+                            raise ValueError(
+                                "Output {} of prefix #{} evaluation not accepted!".format(
+                                    processed_prefix, i))
+                    else:
+                        raise ValueError(
+                            "Formatting {} of prefix #{} not accepted!".format(
+                                prefix, i))
+                elif isinstance(prefix, basestring):
+                    # prefix is string, not much to do, split & prepend
+                    processed_prefix = prefix.split()
+                else:
+                    raise ValueError(
+                        "type({}) = {} of prefix #{} not accepted!".format(
+                            prefix, type(prefix), i))
+
+                if not isinstance(processed_prefix, list):
+                    processed_prefix = [processed_prefix]
+
+                self.logger.info("Prepend prefix '{:s}'.".format(
+                    ' '.join(processed_prefix)))
+                processed_prefix_list.extend(processed_prefix)
+
+            self._args = processed_prefix_list + self._args  # concat two lists
+
+    def _parse_cmd_env_block(self, fw_spec):
+        """Parse command-specific envronment block."""
+        # per default, process inherits current environment
+
+        cmd_block = fw_spec["_fw_env"][self.env]["cmd"][self.cmd]
+        # modify environment before call if desired
+        if "env" in cmd_block:
+            env_dict = cmd_block["env"]
+            if not isinstance(env_dict, dict):
+                raise ValueError(
+                    "type({}) = {} of 'env' not accepted, must be dict!"
+                    .format(env_dict, type(env_dict)))
+
+            # so far, only simple overrides, no pre- or appending
+            for i, (key, value) in enumerate(env_dict):
+                self.logger.info("Set env var '{:s}' = '{:s}'.".format(
+                    key, value))
+            self.modenv[str(key)] = str(value)
+
+    def _parse_cmd_block(self, fw_spec):
+        """Parse command-specific environment block."""
+        if "cmd" in fw_spec["_fw_env"][self.env] \
+                and self.cmd in fw_spec["_fw_env"][self.env]["cmd"]:
+            # same as above, evaluate command-specific initialization code
+            self._parse_cmd_init_block(fw_spec)
+            self._parse_cmd_substitute_block(fw_spec)
+            self._parse_cmd_prefix_block(fw_spec)
+            self._parse_cmd_env_block(fw_spec)
+        else:  # no command-specific expansion in environment, use as is
+            self._args.append(self.cmd)
+
+    def _parse_args(self, fw_spec):
+        self._args = []
+        # in case of a specified worker environment
+        if self.env and "_fw_env" in fw_spec \
+                and self.env in fw_spec["_fw_env"]:
+            self._parse_global_init_block(fw_spec)
+            self._parse_cmd_env_block(fw_spec)
+            # check whether there is any machine-specific "expansion" for
+            # the command head
+            self._parse_cmd_block(fw_spec)
+        elif "_fw_env" in fw_spec and self.cmd in fw_spec["_fw_env"]:
+            # check whether there is any desired command and whether there
+            # exists a machine-specific "alias"
+            self._args = fw_spec["_fw_env"][self.cmd]
+        else:
+            self._args = self.cmd
+
+        if self.opt:  # append command line options if available
+            self._args.append(self.opt)
+
+        self.logger.info("Built command '{:s}'.".format(
+            ' '.join(self.args)))
+        self.logger.debug("Process environment '{}'.".format(self.modenv))
 
     def _run_task_internal(self, fw_spec, stdin):
         # run the program
@@ -164,110 +338,12 @@ class CmdTask(ScriptTask):
         stderr = subprocess.PIPE if self.store_stderr or self.stderr_file else None
         returncodes = []
 
-        args = []
-        # in case of a specified worker environment
-        if self.env and "_fw_env" in fw_spec and self.env in fw_spec["_fw_env"]:
-            # _fw_env : env : init may provide a list of python commans
-            # to run, i.e. for module env initialization
-            if "init" in fw_spec["_fw_env"][self.env]:
-                init = fw_spec["_fw_env"][self.env]["init"]
-                if isinstance(init, basestring):
-                    init = [init]
-                assert isinstance(init, list)
-                for cmd in init:
-                    exec(cmd)
-            else:
-                pass  # no particular initialization for this environment
-
-            # check whether there is any machine-specific "expansion" for
-            # the command head
-            if "cmd" in fw_spec["_fw_env"][self.env] and self.cmd in fw_spec["_fw_env"][self.env]["cmd"]:
-                # same as above, evaluate command-specific initialization code
-                if "init" in fw_spec["_fw_env"][self.env]["cmd"][self.cmd]:
-                    init = fw_spec["_fw_env"][self.env]["cmd"][self.cmd]["init"]
-                    if isinstance(init, basestring):
-                        init = [init]
-                    assert isinstance(init, list), "'init' must be str or list"
-                    for cmd in init:
-                        exec(cmd)
-                else:
-                    pass  # no specific initialization for this command
-
-                if "substitute" in fw_spec["_fw_env"][self.env]["cmd"][self.cmd]:
-                    substitute = fw_spec["_fw_env"][self.env]["cmd"][self.cmd]["substitute"]
-                    assert isinstance(substitute, basestring), "substitute must be str"
-                    args.append(substitute)
-                else:  # otherwise just use command as specified
-                    args.append(self.cmd)
-
-                # prepend machine-specific prefixes to command
-                if "prefix" in fw_spec["_fw_env"][self.env]["cmd"][self.cmd]:
-                    prefix_list = fw_spec["_fw_env"][self.env]["cmd"][self.cmd]["prefix"]
-                    if not isinstance(prefix_list, list):
-                        prefix_list = [prefix_list]
-
-                    processed_prefix_list = []
-                    for i, prefix in enumerate(prefix_list):
-                        processed_prefix = []
-                        # a prefix dict allow for something like this:
-                        #    cmd:
-                        #      lmp:
-                        #        init:   'module("load","lammps/16Mar18-gnu-7.3-openmpi-3.1-colvars-09Feb19")'
-                        #        prefix: [ 'mpirun', { 'eval': 'os.environ["MPIRUN_OPTIONS"]' } ]
-                        if isinstance(prefix, dict):
-                            # special treatment desired for this prefix
-                            if "eval" in prefix:
-                                # evaluate prefix in current context
-                                processed_prefix = eval(prefix["eval"])
-                                try:
-                                    processed_prefix = processed_prefix.decode("utf-8")
-                                except AttributeError:
-                                    pass
-                                if isinstance(processed_prefix, basestring):
-                                    processed_prefix = processed_prefix.split()
-                                else:
-                                    raise ValueError(
-                                        "Output {} of prefix #{} evaluation not accepted!".format(
-                                            processed_prefix, i))
-                            else:
-                                raise ValueError(
-                                    "Formatting {} of prefix #{} not accepted!".format(
-                                        prefix, i))
-                        elif isinstance(prefix,basestring):
-                            # prefix is string, not much to do, split & prepend
-                            processed_prefix = prefix.split()
-                        else:
-                            raise ValueError(
-                                "type({}) = {} of prefix #{} not accepted!".format(
-                                    prefix, type(prefix), i))
-
-                        if not isinstance(processed_prefix, list):
-                            processed_prefix = [processed_prefix]
-
-                        processed_prefix_list.extend(processed_prefix)
-
-                    args = processed_prefix_list + args  # concat two lists
-                else:
-                    pass  # no prefix list to prepend for this command
-            else:  # no command-specific expansion in environment, use as is
-                args.append(self.cmd)
-        elif "_fw_env" in fw_spec and self.cmd in fw_spec["_fw_env"]:
-            # check whether there is any desired command and whether there
-            # exists a machine-specific "alias"
-            args = fw_spec["_fw_env"][self.cmd]
-        else:
-            args = self.cmd
-
-        if self.opt:  # append command line options if available
-            args.append(self.opt)
-
-        # make sure all arguments are strings
-        args = [a if isinstance(a, basestring) else str(a) for a in args]
+        self._parse_args(fw_spec)
 
         p = subprocess.Popen(
-            args, executable=self.shell_exe, stdin=stdin,
+            self.args, executable=self.shell_exe, stdin=stdin,
             stdout=stdout, stderr=stderr,
-            shell=self.use_shell)
+            shell=self.use_shell, env=self.modenv)
 
         if self.stdin_key:
             (stdout, stderr) = p.communicate(fw_spec[self.stdin_key])
@@ -340,6 +416,11 @@ class CmdTask(ScriptTask):
         if self.defuse_bad_rc and self.fizzle_bad_rc:
             raise ValueError(
                 'CmdTask cannot both FIZZLE and DEFUSE a bad returncode!')
+
+    def __init__(self, *args, **kwargs):
+        """Add logger to task."""
+        self.logger = logging.getLogger(__name__)
+        super().__init__(*args, **kwargs)
 
     @classmethod
     def from_str(cls, shell_cmd, parameters=None):

@@ -3,7 +3,7 @@ import os
 import versioneer
 
 __author__     = "Johannes Hörmann"
-__copyright__  = "Copyright 2019, IMTEK Simulation, University of Freiburg"
+__copyright__  = "Copyright 2020, IMTEK Simulation, University of Freiburg"
 __maintainer__ = "Johannes Hörmann"
 __email__      = "johannes.hoermann@imtek.uni-freiburg.de"
 __date__       = "Mar 18, 2020"
@@ -27,10 +27,17 @@ if __name__ == "__main__":
         zip_safe=False,
         install_requires=[
             'fireworks>=1.9.5',
+            'ansible>=2.9.1',
+            'jinja2>=2.10',
+            'jinja2-time>=0.2.0',
+            'python-daemon>=2.2.4',
+            'pid>=3.0.0',
+            'tabulate>=0.8.2',
         ],
         entry_points={
             'console_scripts': [
                 'fwrlm = imteksimfw.fireworks.scripts.fwrlm_run:main',
+                'render = imteksimfw.fireworks.scripts.render_run:main',
             ]
         },
     )
