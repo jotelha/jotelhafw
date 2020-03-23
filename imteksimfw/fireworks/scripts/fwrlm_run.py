@@ -24,7 +24,9 @@
 # SOFTWARE.
 """Manages FireWorks rocket launchers and associated scripts as daemons"""
 
+import argparse
 import os
+import shutil
 import sys  # for stdout and stderr
 import logging
 import multiprocessing
@@ -33,6 +35,11 @@ from imteksimfw.fireworks.utilities.fwrlm_base import pid
 from imteksimfw.fireworks.utilities.fwrlm import DummyManager, \
     RLaunchManager, QLaunchManager, LPadRecoverOfflineManager, \
     LPadWebGuiManager, SSHTunnelManager
+
+from imteksimfw.fireworks.fwrlm_config import config_to_dict, \
+    FW_CONFIG_PREFIX, FW_CONFIG_SKEL_PREFIX, FW_CONFIG_TEMPLATE_PREFIX
+
+from imteksimfw.fireworks.utilities.render import render_batch
 
 daemon_dict = {
     'dummy': DummyManager,
@@ -162,10 +169,49 @@ def act(args, action):
     sys.exit(ret)
 
 
+# configuration administration
+def reset_config(args):
+    """Resets FireWorks user config."""
+    logger = logging.getLogger(__name__)
+
+    if os.path.exists(args.config_dir) and args.force:
+        logger.warning("Directory '{:s}' exists and will be deleted."
+                       .format(args.config_dir))
+        shutil.rmtree(args.config_dir)
+    elif os.path.exists(args.config_dir):
+        msg = ( "Directory '{:s}' does exist! Use '--force' to remove."
+                .format(args.config_dir) )
+        logger.error(msg)
+        raise FileExistsError(msg)
+
+    logger.info("Copy skeleton from {:s} to {:s}.".format(
+        args.skel_dir, args.config_dir))
+    shutil.copytree(args.skel_dir, args.config_dir)
+
+    context = config_to_dict()
+    # only use key : value pairs with value not None
+    args.context = {key: value for key, value in context.items() if value}
+
+    logger.info("Render config tempaltes in {:s}".format(args.template_dir))
+    logger.info("    to {:s}".format(args.config_dir))
+    logger.debug("    with context {}".format(args.context))
+
+    render_batch(
+        args.template_dir,
+        args.config_dir,
+        args.context)
+
+
+def show_config(args):
+    """Show FWRLM config."""
+    config_dict = config_to_dict()
+    for key, value in config_dict.items():
+        print("{:s}={:s}".format(str(key),str(value)))
+
+
 def main():
     """FWRLM command line interface."""
-    import argparse
-    multiprocessing.set_start_method('fork')
+    # multiprocessing.set_start_method('fork')
 
     # in order to have both:
     # * preformatted help text and ...
@@ -254,6 +300,49 @@ def main():
 
     test_parser.set_defaults(func=test_daemon)
 
+    # config command
+    config_parser = subparsers.add_parser(
+        'config', help='Operate on FireWorks config.',
+        formatter_class=ArgumentDefaultsAndRawDescriptionHelpFormatter)
+
+    config_parser.add_argument(
+        '--config-dir', type=str, default=FW_CONFIG_PREFIX,
+        help='User config directory', metavar='CONFIG_DIR', dest='config_dir')
+
+    config_parser.add_argument(
+        '--skel-dir', type=str, default=FW_CONFIG_SKEL_PREFIX,
+        help='Config skeleton directory', metavar='SKEL_DIR', dest='skel_dir')
+
+    config_parser.add_argument(
+        '--template-dir', type=str, default=FW_CONFIG_TEMPLATE_PREFIX,
+        help='Config template directory', metavar='TEMPLATE_DIR',
+        dest='template_dir')
+
+    config_subparsers = config_parser.add_subparsers(
+        help='sub-command', dest='command')
+
+    # config reset command
+    config_reset_parser = config_subparsers.add_parser(
+        'reset',
+        help=(
+            "Reset FireWorks config in 'CONFIG_DIR' by first copying files "
+            "from 'SKEL_DIR' and then rendering files from 'TEMPLATE_DIR' "
+            "with parameters defined within your 'FWRLM_config.yaml'."),
+        formatter_class=ArgumentDefaultsAndRawDescriptionHelpFormatter)
+
+    config_reset_parser.add_argument(
+        '--force', '-f', action='store_true',
+        help='Force overwriting existing config.')
+
+    config_reset_parser.set_defaults(func=reset_config)
+
+    # config reset command
+    config_show_parser = config_subparsers.add_parser(
+        'show', help="Displays current config.",
+        formatter_class=ArgumentDefaultsAndRawDescriptionHelpFormatter)
+
+    config_show_parser.set_defaults(func=show_config)
+
     # parse
     args = parser.parse_args()
 
@@ -281,10 +370,16 @@ def main():
         logger.removeHandler(h)
 
     # create and append custom handles
+
+    # only info & debug to stdout
+    def stdout_filter(record):
+        return record.levelno <= logging.INFO
+
     stdouth = logging.StreamHandler(sys.stdout)
     formatter = logging.Formatter(logformat)
     stdouth.setFormatter(formatter)
     stdouth.setLevel(loglevel)
+    stdouth.addFilter(stdout_filter)
 
     stderrh = logging.StreamHandler(sys.stderr)
     stderrh.setFormatter(formatter)

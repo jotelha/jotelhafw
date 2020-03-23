@@ -25,6 +25,7 @@
 """Quickly renders a single jinja2 template file from command line."""
 
 import argparse
+import os
 import sys  # for stdout and stderr
 import logging
 
@@ -59,6 +60,12 @@ def render_batch_action(args):
     logger.info("    to {:s}".format(args.build_dir))
     logger.debug("    with context {}".format(args.context))
 
+    # create target directory & all intermediate directories if necessary
+    if not os.path.exists(args.build_dir):
+        logger.warning("Directory '{:s}' does not exist, create...".format(
+            args.build_dir))
+        os.makedirs(args.build_dir)
+
     render_batch(
         args.template_dir,
         args.build_dir,
@@ -67,7 +74,9 @@ def render_batch_action(args):
 
 def render_config_action(args):
     """"Render FireWorks user config from default templates."""
-    args.context = config_to_dict()
+    context = config_to_dict()
+    # only use key : value pairs with value not None
+    args.context = {key: value for key, value in context.items() if value}
     render_batch_action(args)
 
 
@@ -136,13 +145,11 @@ def main():
 
     render_batch_parser.add_argument(
         'template_dir',
-        help="Directory containing templates.", metavar='TEMPLATE_DIR',
-        dest='template_dir')
+        help="Directory containing templates.", metavar='TEMPLATE_DIR')
 
     render_batch_parser.add_argument(
         'build_dir',
-        help="Output directory.", metavar='BUILD_DIR',
-        dest='build_dir')
+        help="Output directory.", metavar='BUILD_DIR')
 
     render_batch_parser.add_argument(
         '--context',
@@ -154,18 +161,18 @@ def main():
 
     # config rendering arguments
     render_config_parser = subparsers.add_parser(
-        'batch', help='Render FireWorks user config.',
+        'config', help='Render FireWorks user config.',
         formatter_class=ArgumentDefaultsAndRawDescriptionHelpFormatter)
 
     render_config_parser.add_argument(
         'template_dir',
         help="Directory containing templates.", metavar='TEMPLATE_DIR',
-        default=FW_CONFIG_TEMPLATE_PREFIX, dest='template_dir')
+        default=FW_CONFIG_TEMPLATE_PREFIX, nargs='?')
 
     render_config_parser.add_argument(
         'build_dir',
         help="Output directory.", metavar='BUILD_DIR',
-        default=FW_CONFIG_PREFIX, dest='build_dir')
+        default=FW_CONFIG_PREFIX, nargs='?')
 
     render_config_parser.set_defaults(func=render_config_action)
 
@@ -177,7 +184,7 @@ def main():
     render_inspect_parser.add_argument(
         'template_dir',
         help="Directory containing templates.", metavar='TEMPLATE_DIR',
-        default=FW_CONFIG_TEMPLATE_PREFIX, dest='template_dir')
+        default=FW_CONFIG_TEMPLATE_PREFIX, nargs='?')
 
     render_inspect_parser.set_defaults(func=render_inspect_action)
 

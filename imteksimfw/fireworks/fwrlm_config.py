@@ -35,6 +35,11 @@ FWRLM_CONFIG_FILE_DIR = os.path.join(os.path.expanduser('~'), ".fireworks")
 FWRLM_CONFIG_FILE_NAME = 'FWRLM_config.yaml'
 FWRLM_CONFIG_FILE_ENV_VAR = 'FWRLM_CONFIG_FILE'
 
+# FireWorks config sample skeleton (static files)
+FW_CONFIG_SKEL_PREFIX = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "examples", "fw_config")
+
+# FireWorks config sample templates
 FW_CONFIG_TEMPLATE_PREFIX = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "templates", "fw_config")
 

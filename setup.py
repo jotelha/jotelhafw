@@ -22,7 +22,8 @@ if __name__ == "__main__":
         author_email='johannes.hoermann@imtek.uni-freiburg.de',
         license='MIT',
         packages=find_packages(),
-        package_data={'': ['ChangeLog.md']},
+        include_package_data=True,
+        #package_data={'': ['ChangeLog.md']},
         python_requires='>=3.6.5',
         zip_safe=False,
         install_requires=[
@@ -32,6 +33,7 @@ if __name__ == "__main__":
             'jinja2-time>=0.2.0',
             'python-daemon>=2.2.4',
             'pid>=3.0.0',
+            'psutil>=5.6.1',
             'tabulate>=0.8.2',
         ],
         entry_points={

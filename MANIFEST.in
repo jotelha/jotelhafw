@@ -1,3 +1,4 @@
 include versioneer.py
 include imteksimfw/_version.py
-include imteksimfw/fireworks/templates *
+recursive-include imteksimfw/fireworks/templates *
+recursive-include imteksimfw/fireworks/examples *
