@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# juwels_queue_worker.yaml
+# juwels_noqueue_worker.yaml
 #
 # Copyright (C) 2020 IMTEK Simulation
 # Author: Johannes Hoermann, johannes.hoermann@imtek.uni-freiburg.de
@@ -22,8 +22,8 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-name:     juwels_queue_worker
-category: [ 'juwels_queue' ]
+name:     juwels_noqueue_worker
+category: [ 'juwels_noqueue' ]
 query:    '{}'
 env:
   lmp: module purge;
@@ -32,7 +32,7 @@ env:
         jutil env activate -p chfr13;
         module use ${PROJECT}/common/juwels/modulefiles;
         module load lammps/16Mar18-intel-2019-gcc-7.3-impi-2018-colvars-18Feb19;
-        srun lmp
+        lmp
   exchange_substrate.py: module purge;
         jutil env activate -p chfr13;
         module use ${PROJECT}/common/juwels/modulefiles;
@@ -69,7 +69,7 @@ env:
         module use ${PROJECT}/common/juwels/easybuild/otherstages;
         module load Stages/2019a Intel/2019.3.199-GCC-8.3.0 IntelMPI/2019.3.199;
         module load GROMACS/2019.3 GROMACS-Top/2019.3;
-        srun gmx_mpi
+        gmx
   join_thermo.py: module purge;
         jutil env activate -p chfr13;
         module use ${PROJECT}/common/juwels/modulefiles;
@@ -84,7 +84,7 @@ env:
         jutil env activate -p chfr13;
         module use ${PROJECT}/common/juwels/modulefiles;
         module load mdtools;
-        srun ncfilter.py
+        ncfilter.py
   ncjoin.py: module purge;
         jutil env activate -p chfr13;
         module use ${PROJECT}/common/juwels/modulefiles;
@@ -160,7 +160,7 @@ env:
     - 'from env_modules_python import module'
     - 'module("purge")'
     - 'module("use",os.path.join(os.environ["PROJECT"],"common","juwels","easybuild","otherstages"))'
-    - 'module("load","Stages/2019a")
+    - 'module("load","Stages/2019a")'
     - 'module("avail")'
     cmd:
       lmp:
@@ -168,8 +168,8 @@ env:
         - 'module("use","/gpfs/software/juwels/otherstages")'
         - 'module("load","Stages/2018b")'
         - 'module("load","lammps/16Mar18-intel-2019-gcc-7.3-impi-2018-colvars-18Feb19")'
-        prefix: 'srun'
-
+        env:
+           FI_PROVIDER: tcp
       convert:
         init: 'module("load","GCC","ImageMagick")'
 
@@ -181,6 +181,8 @@ env:
         - 'module("load","Stages/2019a","Intel/2019.3.199-GCC-8.3.0","IntelMPI/2019.3.199")'
         - 'module("load","GromacsWrapper/0.8.0-Python-3.6.8","GROMACS-Top/2019.3")'
         - 'module("load","imteksimcs/devel-Python-3.6.8")'
+        env:
+           FI_PROVIDER: tcp
 
       extract_bb.py:
         init: 'module("load","mdtools/01Jun19-python-2.7")'
@@ -198,8 +200,6 @@ env:
         init:
         - 'module("load","Stages/2019a","Intel/2019.3.199-GCC-8.3.0","IntelMPI/2019.3.199")'
         - 'module("load","GROMACS/2019.3","GROMACS-Top/2019.3")'
-        prefix: srun
-        substitue: gmx_mpi
 
       join_thermo.py:
         init: 'module("load","mdtools")'
@@ -209,7 +209,6 @@ env:
 
       ncfilter.py:
         init: 'module("load","mdtools")'
-        prefix: 'srun'
 
       ncjoin.py:
         init: 'module("load","mdtools")'
