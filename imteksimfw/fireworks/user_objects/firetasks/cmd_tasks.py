@@ -461,10 +461,45 @@ class CmdTask(ScriptTask):
         stdout = subprocess.PIPE if self.store_stdout or self.stdout_file else None
         stderr = subprocess.PIPE if self.store_stderr or self.stderr_file else None
 
-        returncodes = []
-
         with TemporaryOSEnviron():
             self._parse_args(fw_spec)
+
+            # write .py script to reconstruct environment
+            if self.pyfile:
+                with open(self.pyfile, 'w') as pyfile:
+
+                    encoding_params_str_list = [
+                        '{}={}'.format(k,v) for k, v in ENCODING_PARAMS.items() ]
+                    encoding_params_str = ', '.join(encoding_params_str_list)
+
+                    pyfile.write('import os\n')
+                    pyfile.write('import subprocess\n')
+                    pyfile.write('os.environ = {}\n'.format(dict(os.environ)))
+
+                    stdoutstr = 'subprocess.PIPE' if self.store_stdout or self.stdout_file else 'None'
+                    stderrstr = 'subprocess.PIPE' if self.store_stderr or self.stderr_file else 'None'
+                    stdinstr =  'subprocess.PIPE' if not self.stdin_file \
+                        else 'open({:s}, "r", {:s})'.format(
+                            self.stdin_file, encoding_params_str)
+
+                    pyfile.write('\n')
+                    pyfile.write('p = subprocess.Popen(\n')
+                    pyfile.write('    {},\n'.format(self.args))
+                    pyfile.write('    executable={:s}'.format(self.shell_exe))
+                    pyfile.write('    stdin={},\n'.format(stdinstr))
+                    pyfile.write('    stdout={},\n'.format(stdoutstr))
+                    pyfile.write('    shell={},\n'.format(self.use_shell))
+                    pyfile.write('    {})\n\n'.format(encoding_params_str))
+
+                    if self.stdin_key:
+                        pyfile.write('p.stdin.writelines({})\n'.format(stdin_list))
+                        pyfile.write('p.stdin.close()')
+
+
+            self.logger.info("Evoking process with...")
+            self.logger.info("    args         '{}'.".format(self.args))
+            self.logger.info("    executavle   '{}'.".format(self.shell_exe))
+            self.logger.info("    shell        '{}'.".format(self.use_shell))
 
             p = subprocess.Popen(
                 self.args, executable=self.shell_exe, stdin=stdin,
@@ -515,7 +550,11 @@ class CmdTask(ScriptTask):
             # send stdin if desired and wait for subprocess to complete
             if self.stdin_key:
                 p.stdin.writelines(stdin_list)
+
+            try:
                 p.stdin.close()
+            except:
+                pass
 
             for t in threads: t.join()  # wait for stream tee threads
             # tee threads close stderr and stdout
@@ -567,6 +606,7 @@ class CmdTask(ScriptTask):
         self.opt = opt
         self.env = self.get('env')
         self.loglevel = self.get('loglevel', logging.DEBUG)
+        self.pyfile = self.get('pyfile', 'reconstruct.py')
 
         self.stdin_file = d.get('stdin_file')
         self.stdin_key = d.get('stdin_key')
