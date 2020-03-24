@@ -364,10 +364,7 @@ class CmdTask(ScriptTask):
                 shell=self.use_shell)
 
             if self.stdin_key:
-                try:  # try to send str directly
-                    (stdout, stderr) = p.communicate(fw_spec[self.stdin_key])
-                except:  # currenly, stdin is opend as a byte stream in ancestor ScriptTask
-                    (stdout, stderr) = p.communicate(fw_spec[self.stdin_key].encode())
+                (stdout, stderr) = p.communicate(fw_spec[self.stdin_key].encode())
             else:
                 (stdout, stderr) = p.communicate()
             returncodes.append(p.returncode)
