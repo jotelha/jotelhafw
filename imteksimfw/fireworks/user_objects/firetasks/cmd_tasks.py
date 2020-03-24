@@ -2,13 +2,18 @@
 """Enhanced script task."""
 
 import logging
+import io
 import os
 import subprocess
 import sys
+import threading
 
 # fireworks-internal
 from fireworks.core.firework import FWAction
 from fireworks.user_objects.firetasks.script_task import ScriptTask
+
+# in order to have a somewhat centralized encoding configuration
+from fireworks.utilities.fw_serializers import ENCODING_PARAMS
 
 if sys.version_info[0] > 2:
     basestring = str
@@ -20,6 +25,21 @@ __version__ = '0.1.1'
 __maintainer__ = 'Johannes Hoermann'
 __email__ = 'johannes.hoermann@imtek.uni-freiburg.de'
 __date__ = 'Mar 18, 2020'
+
+
+# source: # https://stackoverflow.com/questions/4984428/python-subprocess-get-childrens-output-to-file-and-terminal
+def tee(infile, *files):
+    """Print `infile` to `files` in a separate thread."""
+    def fanout(infile, *files):
+        with infile:
+            for line in iter(infile.readline, ''):
+                for f in files:
+                    f.write(line)
+
+    t = threading.Thread(target=fanout, args=(infile,)+files)
+    t.daemon = True
+    t.start()
+    return t
 
 
 class TemporaryOSEnviron:
@@ -163,7 +183,7 @@ class CmdTask(ScriptTask):
 
     required_params = ['cmd']
     optional_params = [
-        'opt', 'env',
+        'opt', 'env', 'loglevel',
         'stdin_file', 'stdin_key',
         'stdout_file', 'stderr_file', 'store_stdout', 'store_stderr',
         'use_shell', 'shell_exe', 'defuse_bad_rc', 'fizzle_bad_rc']
@@ -349,10 +369,66 @@ class CmdTask(ScriptTask):
             ' '.join(self.args)))
         self.logger.debug("Process environment '{}'.".format(os.environ))
 
+    def _prepare_logger(self, stdout=sys.stdout, stderr=sys.stderr):
+      # explicitly modify the root logger (necessary?)
+        self.logger = logging.getLogger(self._fw_name)
+        self.logger.setLevel(self.loglevel)
+
+        # remove all handlers
+        for h in self.logger.handlers:
+            self.logger.removeHandler(h)
+
+        # create and append custom handles
+
+        # only info & debug to stdout
+        def stdout_filter(record):
+            return record.levelno <= logging.INFO
+
+        stdouth = logging.StreamHandler(stdout)
+        stdouth.setLevel(self.loglevel)
+        stdouth.addFilter(stdout_filter)
+
+        stderrh = logging.StreamHandler(stderr)
+        stderrh.setLevel(logging.WARNING)
+
+        self.logger.addHandler(stdouth)
+        self.logger.addHandler(stderrh)
+
+        if self.store_stdout:
+            outh = logging.StreamHandler(self._stdout)
+            outh.setLevel(self.loglevel)
+            outh.addFilter(stdout_filter)
+            self.logger.addHandler(outh)
+
+        if self.store_stderr:
+            errh = logging.StreamHandler(self._stderr)
+            errh.setLevel(logging.WARNING)
+            self.logger.addHandler(errh)
+
+        if self.stdout_file:
+            outfh = logging.FileHandler(self.stdout_file, mode='a+', **ENCODING_PARAMS)
+            outfh.setLevel(self.loglevel)
+            outfh.addFilter(stdout_filter)
+            self.logger.addHandler(outfh)
+
+        if self.stderr_file:
+            errfh = logging.FileHandler(self.stderr_file, mode='a+', **ENCODING_PARAMS)
+            errfh.setLevel(logging.WARNING)
+            self.logger.addHandler(errfh)
+
     def _run_task_internal(self, fw_spec, stdin):
-        # run the program
+        """Runs a sub-process"""
+        if self.store_stdout:
+            self._stdout = io.TextIOWrapper(io.BytesIO(),**ENCODING_PARAMS)
+
+        if self.store_stderr:
+            self._stderr = io.TextIOWrapper(io.BytesIO(),**ENCODING_PARAMS)
+
+        self._prepare_logger()
+
         stdout = subprocess.PIPE if self.store_stdout or self.stdout_file else None
         stderr = subprocess.PIPE if self.store_stderr or self.stderr_file else None
+
         returncodes = []
 
         with TemporaryOSEnviron():
@@ -361,37 +437,59 @@ class CmdTask(ScriptTask):
             p = subprocess.Popen(
                 self.args, executable=self.shell_exe, stdin=stdin,
                 stdout=stdout, stderr=stderr,
-                shell=self.use_shell)
+                shell=self.use_shell, **ENCODING_PARAMS)
 
+            threads = []
+
+            if stdout is not None:
+                out_streams = []
+                if self.stdout_file:
+                    outf = open(self.stdout_file, 'a+', **ENCODING_PARAMS)
+                    out_streams.append(outf)
+                if self.store_stdout:
+                    # outs = io.TextIOWrapper(BytesIO(),**ENCODING_PARAMS)
+                    out_streams.append(self._stdout)
+
+                out_streams.append(sys.stdout)  # per default to sys.stdout
+                threads.append(tee(p.stdout, *out_streams))
+
+            if stderr is not None:
+                err_streams = []
+                if self.stderr_file:
+                    errf = open(self.stderr_file, 'a+', **ENCODING_PARAMS)
+                    err_streams.append(errf)
+                if self.store_stderr:
+                    # errs = io.TextIOWrapper(BytesIO(),**ENCODING_PARAMS)
+                    err_streams.append(self._stderr)
+
+                err_streams.append(sys.stderr)  # per default to sys.stderr
+                threads.append(tee(p.stderr, *err_streams))
+
+            # send stdin if desired and wait for subprocess to complete
             if self.stdin_key:
-                (stdout, stderr) = p.communicate(fw_spec[self.stdin_key].encode())
+                (stdout_data, stderr_data) = p.communicate(
+                    fw_spec[self.stdin_key].encode(**ENCODING_PARAMS))
             else:
-                (stdout, stderr) = p.communicate()
+                (stdout_data, stderr_data) = p.communicate()
+
             returncodes.append(p.returncode)
 
-        # write out the output, error files if specified
+            for t in threads: t.join()  # wait for stream tee threads
 
-        stdout = stdout.decode('utf-8', errors="ignore") if isinstance(
-            stdout, bytes) else stdout
-        stderr = stderr.decode('utf-8', errors="ignore") if isinstance(
-            stderr, bytes) else stderr
-
-        if self.stdout_file:
-            with open(self.stdout_file, 'a+') as f:
-                f.write(stdout)
-
-        if self.stderr_file:
-            with open(self.stderr_file, 'a+') as f:
-                f.write(stderr)
+            # write out the output, error files if specified
+            # stdout_str = stdout_data.decode(errors="ignore", **ENCODING_PARAMS) if isinstance(
+            #    stdout_data, bytes) else stdout
+            # stderr_str = stderr_data.decode(errors="ignore", **ENCODING_PARAMS) if isinstance(
+            #    stderr_data, bytes) else stderr_data
 
         # write the output keys
         output = {}
 
         if self.store_stdout:
-            output['stdout'] = stdout
+            output['stdout'] = self._stdout.read()
 
         if self.store_stderr:
-            output['stderr'] = stderr
+            output['stderr'] = self._stderr.read()
 
         output['returncode'] = returncodes[-1]
         output['all_returncodes'] = returncodes
@@ -420,6 +518,7 @@ class CmdTask(ScriptTask):
             opt = [opt]
         self.opt = opt
         self.env = self.get('env')
+        self.loglevel = self.get('loglevel', logging.DEBUG)
 
         self.stdin_file = d.get('stdin_file')
         self.stdin_key = d.get('stdin_key')
@@ -435,10 +534,10 @@ class CmdTask(ScriptTask):
             raise ValueError(
                 'CmdTask cannot both FIZZLE and DEFUSE a bad returncode!')
 
-    def __init__(self, *args, **kwargs):
-        """Add logger to task."""
-        self.logger = logging.getLogger(__name__)
-        super().__init__(*args, **kwargs)
+    # def __init__(self, *args, **kwargs):
+        # """Add logger to task."""
+        # self.logger = logging.getLogger(__name__)
+        # super().__init__(*args, **kwargs)
 
     @classmethod
     def from_str(cls, shell_cmd, parameters=None):
