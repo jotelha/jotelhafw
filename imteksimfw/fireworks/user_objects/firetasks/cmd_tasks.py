@@ -22,6 +22,15 @@ __email__ = 'johannes.hoermann@imtek.uni-freiburg.de'
 __date__ = 'Mar 18, 2020'
 
 
+class TemporaryOSEnviron:
+    """Preserve original os.environ."""
+    def __enter__(self):
+        self._original_environ = os.environ.copy()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        os.environ = self._original_environ
+
+
 class CmdTask(ScriptTask):
     """Enhanced script task, runs (possibly environment dependent)  command.
 
@@ -177,11 +186,12 @@ class CmdTask(ScriptTask):
                 exec(cmd)
         else:
             pass  # no particular initialization for this environment
+        return os.environ
 
     def _parse_global_env_block(self, fw_spec):
         """Parse global envronment block."""
         # per default, process inherits current environment
-        self.modenv = os.environ.copy()
+        # self.modenv = os.environ.copy()
         # modify environment before call if desired
         if "env" in fw_spec["_fw_env"][self.env]:
             env_dict = fw_spec["_fw_env"][self.env]["env"]
@@ -194,7 +204,8 @@ class CmdTask(ScriptTask):
             for i, (key, value) in enumerate(env_dict):
                 self.logger.info("Set env var '{:s}' = '{:s}'.".format(
                     key, value))
-            self.modenv[str(key)] = str(value)
+            os.environ[str(key)] = str(value)
+        # return os.environ
 
     def _parse_cmd_init_block(self, fw_spec):
         """Parse per-command init block."""
@@ -209,6 +220,7 @@ class CmdTask(ScriptTask):
                 exec(cmd)
         else:
             pass  # no specific initialization for this command
+        # return os.environ
 
     def _parse_cmd_substitute_block(self, fw_spec):
         """Parse per-command substitute block."""
@@ -221,6 +233,7 @@ class CmdTask(ScriptTask):
             self._args.append(substitute)
         else:  # otherwise just use command as specified
             self._args.append(self.cmd)
+        # return os.environ
 
     def _parse_cmd_prefix_block(self, fw_spec):
         """Parse per-command prefix block."""
@@ -277,6 +290,8 @@ class CmdTask(ScriptTask):
 
             self._args = processed_prefix_list + self._args  # concat two lists
 
+        # return os.environ
+
     def _parse_cmd_env_block(self, fw_spec):
         """Parse command-specific envronment block."""
         # per default, process inherits current environment
@@ -294,7 +309,8 @@ class CmdTask(ScriptTask):
             for i, (key, value) in enumerate(env_dict):
                 self.logger.info("Set env var '{:s}' = '{:s}'.".format(
                     key, value))
-            self.modenv[str(key)] = str(value)
+            os.environ[str(key)] = str(value)
+        # return os.environ
 
     def _parse_cmd_block(self, fw_spec):
         """Parse command-specific environment block."""
@@ -307,6 +323,7 @@ class CmdTask(ScriptTask):
             self._parse_cmd_env_block(fw_spec)
         else:  # no command-specific expansion in environment, use as is
             self._args.append(self.cmd)
+        # return os.environ
 
     def _parse_args(self, fw_spec):
         self._args = []
@@ -330,7 +347,7 @@ class CmdTask(ScriptTask):
 
         self.logger.info("Built command '{:s}'.".format(
             ' '.join(self.args)))
-        self.logger.debug("Process environment '{}'.".format(self.modenv))
+        self.logger.debug("Process environment '{}'.".format(os.environ))
 
     def _run_task_internal(self, fw_spec, stdin):
         # run the program
@@ -338,18 +355,22 @@ class CmdTask(ScriptTask):
         stderr = subprocess.PIPE if self.store_stderr or self.stderr_file else None
         returncodes = []
 
-        self._parse_args(fw_spec)
+        with TemporaryOSEnviron():
+            self._parse_args(fw_spec)
 
-        p = subprocess.Popen(
-            self.args, executable=self.shell_exe, stdin=stdin,
-            stdout=stdout, stderr=stderr,
-            shell=self.use_shell, env=self.modenv)
+            p = subprocess.Popen(
+                self.args, executable=self.shell_exe, stdin=stdin,
+                stdout=stdout, stderr=stderr,
+                shell=self.use_shell)
 
-        if self.stdin_key:
-            (stdout, stderr) = p.communicate(fw_spec[self.stdin_key])
-        else:
-            (stdout, stderr) = p.communicate()
-        returncodes.append(p.returncode)
+            if self.stdin_key:
+                try:  # try to send str directly
+                    (stdout, stderr) = p.communicate(fw_spec[self.stdin_key])
+                except:  # currenly, stdin is opend as a byte stream in ancestor ScriptTask
+                    (stdout, stderr) = p.communicate(fw_spec[self.stdin_key].encode())
+            else:
+                (stdout, stderr) = p.communicate()
+            returncodes.append(p.returncode)
 
         # write out the output, error files if specified
 
