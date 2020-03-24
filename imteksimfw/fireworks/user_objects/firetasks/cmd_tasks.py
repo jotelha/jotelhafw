@@ -336,7 +336,7 @@ class CmdTask(ScriptTask):
         if "cmd" in fw_spec["_fw_env"][self.env] \
                 and self.cmd in fw_spec["_fw_env"][self.env]["cmd"]:
             self.logger.info("Found {:s}-specific block '{}' within worker file."
-                .format(self.cmd, fw_spec["_fw_env"][self.env]["cmd"]))
+                .format(self.cmd, fw_spec["_fw_env"][self.env]["cmd"][self.cmd]))
             # same as above, evaluate command-specific initialization code
             self._parse_cmd_init_block(fw_spec)
             self._parse_cmd_substitute_block(fw_spec)
@@ -413,25 +413,43 @@ class CmdTask(ScriptTask):
             self.logger.addHandler(errh)
 
         if self.stdout_file:
-            outfh = logging.FileHandler(self.stdout_file, mode='a+', **ENCODING_PARAMS)
+            outfh = logging.FileHandler(self.stdout_file, mode='a', **ENCODING_PARAMS)
             outfh.setLevel(self.loglevel)
             outfh.addFilter(stdout_filter)
             self.logger.addHandler(outfh)
 
         if self.stderr_file:
-            errfh = logging.FileHandler(self.stderr_file, mode='a+', **ENCODING_PARAMS)
+            errfh = logging.FileHandler(self.stderr_file, mode='a', **ENCODING_PARAMS)
             errfh.setLevel(logging.WARNING)
             self.logger.addHandler(errfh)
 
-    def _run_task_internal(self, fw_spec, stdin):
-        """Runs a sub-process"""
+    # def _run_task_internal(self, fw_spec, stdin):
+    def run_task(self, fw_spec):
+        """Run a sub-process. Modify environment if desired."""
+
+        if self.get('use_global_spec'):
+            self._load_params(fw_spec)
+        else:
+            self._load_params(self)
+
+        # create non-default streams to insert into db if desired
         if self.store_stdout:
             self._stdout = io.TextIOWrapper(io.BytesIO(),**ENCODING_PARAMS)
 
         if self.store_stderr:
             self._stderr = io.TextIOWrapper(io.BytesIO(),**ENCODING_PARAMS)
 
+        # FireTask log messages as well as sub-process std streams are logged
+        # to files and database, depending on flags.
         self._prepare_logger()
+
+        # get the standard in and run task internally
+        if self.stdin_file:
+            stdin = open(self.stdin_file, 'r', **ENCODING_PARAMS)
+        elif self.stdin_key:
+            stdin = subprocess.PIPE
+        else:
+            stdin = None
 
         stdout = subprocess.PIPE if self.store_stdout or self.stdout_file else None
         stderr = subprocess.PIPE if self.store_stderr or self.stderr_file else None
@@ -446,14 +464,25 @@ class CmdTask(ScriptTask):
                 stdout=stdout, stderr=stderr,
                 shell=self.use_shell, **ENCODING_PARAMS)
 
+            self.logger.info("Evoked process with...")
+            self.logger.info("    args         '{}'.".format(p.args))
+            self.logger.info("    PID          '{}'.".format(p.pid))
+            self.logger.info("    type(stdin)  '{}'.".format(type(p.stdin)))
+            self.logger.info("    type(stdout) '{}'.".format(type(p.stdout)))
+            self.logger.info("    type(stderr) '{}'.".format(type(p.stderr)))
+
             threads = []
 
             if stdout is not None:
                 out_streams = []
                 if self.stdout_file:
-                    outf = open(self.stdout_file, 'a+', **ENCODING_PARAMS)
+                    self.logger.info("Redirecting process stdout to '{:s}'."
+                        .format(self.stdout_file))
+                    outf = open(self.stdout_file, 'a', **ENCODING_PARAMS)
                     out_streams.append(outf)
                 if self.store_stdout:
+                    self.logger.info("Redirecting process stdout to internal buffer '{}'."
+                        .format(type(self._stdout)))
                     # outs = io.TextIOWrapper(BytesIO(),**ENCODING_PARAMS)
                     out_streams.append(self._stdout)
 
@@ -463,9 +492,13 @@ class CmdTask(ScriptTask):
             if stderr is not None:
                 err_streams = []
                 if self.stderr_file:
-                    errf = open(self.stderr_file, 'a+', **ENCODING_PARAMS)
+                    self.logger.info("Redirecting process stderr to '{:s}'."
+                        .format(self.stderr_file))
+                    errf = open(self.stderr_file, 'a', **ENCODING_PARAMS)
                     err_streams.append(errf)
                 if self.store_stderr:
+                    self.logger.info("Redirecting process stderr to internal buffer '{}'."
+                        .format(type(self._stderr)))
                     # errs = io.TextIOWrapper(BytesIO(),**ENCODING_PARAMS)
                     err_streams.append(self._stderr)
 
@@ -481,7 +514,7 @@ class CmdTask(ScriptTask):
                     #    fw_spec[self.stdin_key].encode(**ENCODING_PARAMS))
                 except Exception as exc:
                     self.logger.exception(
-                        "Communcating 'fw_spec[{:s}] = {:s}' failed with  exception '{}'."
+                        "Communcating 'fw_spec[{:s}] = {:s}' failed with exception '{}'."
                         .format(self.stdin_key, fw_spec[self.stdin_key], exc))
             else:
                 try:
@@ -489,8 +522,6 @@ class CmdTask(ScriptTask):
                 except Exception as exc:
                     self.logger.exception(
                         "Communcating failed with exception '{}'.".format(exc))
-
-            returncodes.append(p.returncode)
 
             for t in threads: t.join()  # wait for stream tee threads
 
@@ -500,27 +531,34 @@ class CmdTask(ScriptTask):
             # stderr_str = stderr_data.decode(errors="ignore", **ENCODING_PARAMS) if isinstance(
             #    stderr_data, bytes) else stderr_data
 
-        # write the output keys
-        output = {}
+            # write the output keys
+            output = {}
 
-        if self.store_stdout:
-            output['stdout'] = self._stdout.read()
+            if self.store_stdout:
+                output['stdout'] = self._stdout.read()
 
-        if self.store_stderr:
-            output['stderr'] = self._stderr.read()
+            if self.store_stderr:
+                output['stderr'] = self._stderr.read()
 
-        output['returncode'] = returncodes[-1]
-        output['all_returncodes'] = returncodes
+            returncode = None
+            if hasattr(p,'returncode'):
+                returncode = p.returncode
+                self.logger.info(
+                    "Process returned '{}'.".format(p.returncode))
+                output['returncode'] = returncode
+            else:
+                self.logger.warning("Process did not return.")
 
-        if self.defuse_bad_rc and sum(returncodes) != 0:
-            fwaction = FWAction(stored_data=output, defuse_children=True)
-        elif self.fizzle_bad_rc and sum(returncodes) != 0:
-            raise RuntimeError(
-                'CmdTask fizzled! Return code: {}'.format(returncodes))
-        else:
-            fwaction = FWAction(stored_data=output)
+            if self.defuse_bad_rc and (returncode is None or returncode != 0):
+                fwaction = FWAction(stored_data=output, defuse_children=True)
+            elif self.fizzle_bad_rc and (returncode is None or returncode != 0):
+                raise RuntimeError(
+                    'CmdTask fizzled! Return code: {}, output: {}'
+                    .format(returncode, output))
+            else:  # returned as expected with 0 return code
+                fwaction = FWAction(stored_data=output)
 
-        return fwaction
+            return fwaction
 
     def _load_params(self, d):
         if d.get('stdin_file') and d.get('stdin_key'):
@@ -551,15 +589,3 @@ class CmdTask(ScriptTask):
         if self.defuse_bad_rc and self.fizzle_bad_rc:
             raise ValueError(
                 'CmdTask cannot both FIZZLE and DEFUSE a bad returncode!')
-
-    # def __init__(self, *args, **kwargs):
-        # """Add logger to task."""
-        # self.logger = logging.getLogger(__name__)
-        # super().__init__(*args, **kwargs)
-
-    @classmethod
-    def from_str(cls, shell_cmd, parameters=None):
-        parameters = parameters if parameters else {}
-        parameters['cmd'] = [shell_cmd]
-        parameters['use_shell'] = True
-        return cls(parameters)
