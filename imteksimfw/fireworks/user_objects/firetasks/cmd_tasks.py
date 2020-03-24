@@ -253,8 +253,9 @@ class CmdTask(ScriptTask):
                 self.cmd, substitute))
             self._args.append(substitute)
         else:  # otherwise just use command as specified
+            self.logger.info("No substitute for command '{:s}'.".format(
+                self.cmd))
             self._args.append(self.cmd)
-        # return os.environ
 
     def _parse_cmd_prefix_block(self, fw_spec):
         """Parse per-command prefix block."""
@@ -311,8 +312,6 @@ class CmdTask(ScriptTask):
 
             self._args = processed_prefix_list + self._args  # concat two lists
 
-        # return os.environ
-
     def _parse_cmd_env_block(self, fw_spec):
         """Parse command-specific envronment block."""
         # per default, process inherits current environment
@@ -331,12 +330,13 @@ class CmdTask(ScriptTask):
                 self.logger.info("Set env var '{:s}' = '{:s}'.".format(
                     key, value))
             os.environ[str(key)] = str(value)
-        # return os.environ
 
     def _parse_cmd_block(self, fw_spec):
         """Parse command-specific environment block."""
         if "cmd" in fw_spec["_fw_env"][self.env] \
                 and self.cmd in fw_spec["_fw_env"][self.env]["cmd"]:
+            self.logger.info("Found {:s}-specific block '{}' within worker file."
+                .format(self.cmd, fw_spec["_fw_env"][self.env]["cmd"]))
             # same as above, evaluate command-specific initialization code
             self._parse_cmd_init_block(fw_spec)
             self._parse_cmd_substitute_block(fw_spec)
@@ -351,6 +351,9 @@ class CmdTask(ScriptTask):
         # in case of a specified worker environment
         if self.env and "_fw_env" in fw_spec \
                 and self.env in fw_spec["_fw_env"]:
+            self.logger.info("Found {:s}-specific block '{}' within worker file."
+                .format(self.env, fw_spec["_fw_env"]))
+
             self._parse_global_init_block(fw_spec)
             self._parse_cmd_env_block(fw_spec)
             # check whether there is any machine-specific "expansion" for
@@ -359,13 +362,16 @@ class CmdTask(ScriptTask):
         elif "_fw_env" in fw_spec and self.cmd in fw_spec["_fw_env"]:
             # check whether there is any desired command and whether there
             # exists a machine-specific "alias"
-            self._args = fw_spec["_fw_env"][self.cmd]
+            self.logger.info("Found root-level {:s}-specific block '{}' within worker file."
+                .format(self.cmd, fw_spec["_fw_env"][self.cmd]))
+            self._args = [fw_spec["_fw_env"][self.cmd]]
         else:
-            self._args = self.cmd
+            self._args = [self.cmd]
 
-        if self.opt:  # 3xtend by command line options if available
+        if self.opt:  # extend by command line options if available
             self._args.extend(self.opt)
 
+        self.logger.info("Built args '{}'.".format(self._args))
         self.logger.info("Built command '{:s}'.".format(
             ' '.join(self.args)))
         self.logger.debug("Process environment '{}'.".format(os.environ))
