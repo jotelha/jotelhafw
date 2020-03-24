@@ -203,6 +203,7 @@ class CmdTask(ScriptTask):
                 init = [init]
             assert isinstance(init, list)
             for cmd in init:
+                self.logger.info("Execute '{:s}'.".format(cmd))
                 exec(cmd)
         else:
             pass  # no particular initialization for this environment
@@ -362,8 +363,8 @@ class CmdTask(ScriptTask):
         else:
             self._args = self.cmd
 
-        if self.opt:  # append command line options if available
-            self._args.append(self.opt)
+        if self.opt:  # 3xtend by command line options if available
+            self._args.extend(self.opt)
 
         self.logger.info("Built command '{:s}'.".format(
             ' '.join(self.args)))
@@ -467,10 +468,21 @@ class CmdTask(ScriptTask):
 
             # send stdin if desired and wait for subprocess to complete
             if self.stdin_key:
-                (stdout_data, stderr_data) = p.communicate(
-                    fw_spec[self.stdin_key].encode(**ENCODING_PARAMS))
+                # if p.stdin and sys.stdin.encoding:
+                try:
+                    (stdout_data, stderr_data) = p.communicate(
+                        fw_spec[self.stdin_key])
+                    #    fw_spec[self.stdin_key].encode(**ENCODING_PARAMS))
+                except Exception as exc:
+                    self.logger.exception(
+                        "Communcating 'fw_spec[{:s}] = {:s}' failed with  exception '{}'."
+                        .format(self.stdin_key, fw_spec[self.stdin_key], exc))
             else:
-                (stdout_data, stderr_data) = p.communicate()
+                try:
+                    (stdout_data, stderr_data) = p.communicate()
+                except Exception as exc:
+                    self.logger.exception(
+                        "Communcating failed with exception '{}'.".format(exc))
 
             returncodes.append(p.returncode)
 
