@@ -183,7 +183,7 @@ class CmdTask(ScriptTask):
 
     required_params = ['cmd']
     optional_params = [
-        'opt', 'env', 'loglevel',
+        'opt', 'env', 'loglevel', 'pyfile',
         'stdin_file', 'stdin_key',
         'stdout_file', 'stderr_file', 'store_stdout', 'store_stderr',
         'use_shell', 'shell_exe', 'defuse_bad_rc', 'fizzle_bad_rc']
@@ -204,10 +204,8 @@ class CmdTask(ScriptTask):
             assert isinstance(init, list)
             for cmd in init:
                 self.logger.info("Execute '{:s}'.".format(cmd))
+                self._history.append(cmd)
                 exec(cmd)
-        else:
-            pass  # no particular initialization for this environment
-        return os.environ
 
     def _parse_global_env_block(self, fw_spec):
         """Parse global envronment block."""
@@ -222,11 +220,12 @@ class CmdTask(ScriptTask):
                         .format(env_dict, type(env_dict)))
 
             # so far, only simple overrides, no pre- or appending
-            for i, (key, value) in enumerate(env_dict):
+            for i, (key, value) in enumerate(env_dict.items()):
                 self.logger.info("Set env var '{:s}' = '{:s}'.".format(
                     key, value))
-            os.environ[str(key)] = str(value)
-        # return os.environ
+                self._history.append('os.environ["{:s}"] = "{:s}"'.format(
+                    str(key), str(value)))
+                os.environ[str(key)] = str(value)
 
     def _parse_cmd_init_block(self, fw_spec):
         """Parse per-command init block."""
@@ -238,10 +237,8 @@ class CmdTask(ScriptTask):
             assert isinstance(init, list), "'init' must be str or list"
             for cmd in init:
                 self.logger.info("Execute '{:s}'.".format(cmd))
+                self._history.append(cmd)
                 exec(cmd)
-        else:
-            pass  # no specific initialization for this command
-        # return os.environ
 
     def _parse_cmd_substitute_block(self, fw_spec):
         """Parse per-command substitute block."""
@@ -313,7 +310,7 @@ class CmdTask(ScriptTask):
             self._args = processed_prefix_list + self._args  # concat two lists
 
     def _parse_cmd_env_block(self, fw_spec):
-        """Parse command-specific envronment block."""
+        """Parse command-specific environment block."""
         # per default, process inherits current environment
 
         cmd_block = fw_spec["_fw_env"][self.env]["cmd"][self.cmd]
@@ -326,10 +323,12 @@ class CmdTask(ScriptTask):
                     .format(env_dict, type(env_dict)))
 
             # so far, only simple overrides, no pre- or appending
-            for i, (key, value) in enumerate(env_dict):
+            for i, (key, value) in enumerate(env_dict.items()):
                 self.logger.info("Set env var '{:s}' = '{:s}'.".format(
                     key, value))
-            os.environ[str(key)] = str(value)
+                self._history.append('os.environ["{:s}"] = "{:s}"'.format(
+                    str(key), str(value)))
+                os.environ[str(key)] = str(value)
 
     def _parse_cmd_block(self, fw_spec):
         """Parse command-specific environment block."""
@@ -354,7 +353,7 @@ class CmdTask(ScriptTask):
                 .format(self.env, fw_spec["_fw_env"]))
 
             self._parse_global_init_block(fw_spec)
-            self._parse_cmd_env_block(fw_spec)
+            self._parse_global_env_block(fw_spec)
             # check whether there is any machine-specific "expansion" for
             # the command head
             self._parse_cmd_block(fw_spec)
@@ -425,6 +424,9 @@ class CmdTask(ScriptTask):
     def run_task(self, fw_spec):
         """Run a sub-process. Modify environment if desired."""
 
+        # _history holds python commands in string from to conserve
+        self._history = []
+
         if self.get('use_global_spec'):
             self._load_params(fw_spec)
         else:
@@ -464,47 +466,72 @@ class CmdTask(ScriptTask):
         with TemporaryOSEnviron():
             self._parse_args(fw_spec)
 
+            kwargs = {}
+            if self.shell_exe:
+                kwargs.update({'executable': self.shell_exe})
+            if self.use_shell:
+                kwargs.update({'shell': self.use_shell})
+
             # write .py script to reconstruct environment
             if self.pyfile:
                 with open(self.pyfile, 'w') as pyfile:
-
                     encoding_params_str_list = [
-                        '{}={}'.format(k,v) for k, v in ENCODING_PARAMS.items() ]
+                        '{}="{}"'.format(k,v) if isinstance(v, basestring) \
+                            else '{}={}'.format(k,v) for k, v in ENCODING_PARAMS.items() ]
                     encoding_params_str = ', '.join(encoding_params_str_list)
+
+                    kwargs_str_list = [
+                        '{}="{}"'.format(k,v) if isinstance(v, basestring) \
+                            else '{}={}'.format(k,v) for k, v in kwargs.items() ]
+                    kwargs_str = ', '.join(kwargs_str_list)
 
                     pyfile.write('import os\n')
                     pyfile.write('import subprocess\n')
-                    pyfile.write('os.environ = {}\n'.format(dict(os.environ)))
+
+                    for line in self._history:
+                        pyfile.write(line)
+                        pyfile.write('\n')
+
+                    pyfile.write('# os.environ = {}\n'.format(dict(os.environ)))
 
                     stdoutstr = 'subprocess.PIPE' if self.store_stdout or self.stdout_file else 'None'
                     stderrstr = 'subprocess.PIPE' if self.store_stderr or self.stderr_file else 'None'
-                    stdinstr =  'subprocess.PIPE' if not self.stdin_file \
-                        else 'open({:s}, "r", {:s})'.format(
+                    if self.stdin_key:
+                        stdinstr =  'subprocess.PIPE'
+                    elif self.stdin_file:
+                        stdinstr = 'open({:s}, "r", "{:s}")'.format(
                             self.stdin_file, encoding_params_str)
+                    else:
+                        stdinstr = 'None'
 
                     pyfile.write('\n')
                     pyfile.write('p = subprocess.Popen(\n')
                     pyfile.write('    {},\n'.format(self.args))
-                    pyfile.write('    executable={:s}'.format(self.shell_exe))
                     pyfile.write('    stdin={},\n'.format(stdinstr))
                     pyfile.write('    stdout={},\n'.format(stdoutstr))
-                    pyfile.write('    shell={},\n'.format(self.use_shell))
-                    pyfile.write('    {})\n\n'.format(encoding_params_str))
+                    pyfile.write('    stderr={},\n'.format(stderrstr))
+                    pyfile.write('    env=os.environ')
+                    if len(encoding_params_str) > 0:
+                        pyfile.write(',\n    {}'.format(encoding_params_str))
+                    if len(kwargs) > 0:
+                        pyfile.write(',\n    {}'.format(kwargs_str))
+                    pyfile.write(')\n\n')
 
                     if self.stdin_key:
                         pyfile.write('p.stdin.writelines({})\n'.format(stdin_list))
                         pyfile.write('p.stdin.close()')
 
+                    pyfile.write('ret = p.wait()')
 
-            self.logger.info("Evoking process with...")
-            self.logger.info("    args         '{}'.".format(self.args))
-            self.logger.info("    executavle   '{}'.".format(self.shell_exe))
-            self.logger.info("    shell        '{}'.".format(self.use_shell))
+            self.logger.info("Evoking subprocess.Popen with...")
+            self.logger.info("    args            '{}'.".format(self.args))
+            self.logger.info("    ENCODING_PARAMS '{}'.".format(ENCODING_PARAMS))
+            self.logger.info("    kwargs          '{}'.".format(kwargs))
 
             p = subprocess.Popen(
-                self.args, executable=self.shell_exe, stdin=stdin,
-                stdout=stdout, stderr=stderr,
-                shell=self.use_shell, **ENCODING_PARAMS)
+                self.args, stdin=stdin,
+                stdout=stdout, stderr=stderr, env=os.environ,
+                **ENCODING_PARAMS, **kwargs)
 
             self.logger.info("Evoked process with...")
             self.logger.info("    args         '{}'.".format(p.args))
@@ -573,9 +600,11 @@ class CmdTask(ScriptTask):
             output = {}
 
             if self.store_stdout:
+                self._stdout.seek(0)
                 output['stdout'] = self._stdout.read()
 
             if self.store_stderr:
+                self._stderr.seek(0)
                 output['stderr'] = self._stderr.read()
 
             output['returncode'] = returncode
@@ -595,10 +624,7 @@ class CmdTask(ScriptTask):
         if d.get('stdin_file') and d.get('stdin_key'):
             raise ValueError('CmdTask cannot process both a key and file as the standard in!')
 
-        self.use_shell = d.get('use_shell', True)
-
         self.cmd = d.get('cmd')
-
         # command line options
         opt = d.get('opt', None)
         if isinstance(opt, basestring):
@@ -614,7 +640,8 @@ class CmdTask(ScriptTask):
         self.stderr_file = d.get('stderr_file')
         self.store_stdout = d.get('store_stdout')
         self.store_stderr = d.get('store_stderr')
-        self.shell_exe = d.get('shell_exe', '/bin/bash')  # bash as default
+        self.shell_exe = d.get('shell_exe')
+        self.use_shell = d.get('use_shell')
         self.defuse_bad_rc = d.get('defuse_bad_rc')
         self.fizzle_bad_rc = d.get('fizzle_bad_rc', not self.defuse_bad_rc)
 
