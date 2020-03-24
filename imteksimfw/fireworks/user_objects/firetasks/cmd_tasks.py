@@ -78,8 +78,8 @@ class CmdTask(ScriptTask):
             through a non-default shell.
         - stdin_file - (default:None) - feed this filepath as standard input
             to the script
-        - stdin_key - (default:None) - feed this String as standard input
-            to the script
+        - stdin_key - (default:None) - feed this string or list of strings
+            as standard input to the script
         - store_stdout (default:False) - store the entire standard output in
             the Firework Launch object's stored_data
         - stdout_file - (default:None) - store the entire standard output in
@@ -344,7 +344,6 @@ class CmdTask(ScriptTask):
             self._parse_cmd_env_block(fw_spec)
         else:  # no command-specific expansion in environment, use as is
             self._args.append(self.cmd)
-        # return os.environ
 
     def _parse_args(self, fw_spec):
         self._args = []
@@ -377,7 +376,7 @@ class CmdTask(ScriptTask):
         self.logger.debug("Process environment '{}'.".format(os.environ))
 
     def _prepare_logger(self, stdout=sys.stdout, stderr=sys.stderr):
-      # explicitly modify the root logger (necessary?)
+        # explicitly modify the root logger (necessary?)
         self.logger = logging.getLogger(self._fw_name)
         self.logger.setLevel(self.loglevel)
 
@@ -423,7 +422,6 @@ class CmdTask(ScriptTask):
             errfh.setLevel(logging.WARNING)
             self.logger.addHandler(errfh)
 
-    # def _run_task_internal(self, fw_spec, stdin):
     def run_task(self, fw_spec):
         """Run a sub-process. Modify environment if desired."""
 
@@ -447,6 +445,15 @@ class CmdTask(ScriptTask):
         if self.stdin_file:
             stdin = open(self.stdin_file, 'r', **ENCODING_PARAMS)
         elif self.stdin_key:
+            stdin_str = fw_spec[self.stdin_key]
+            try:
+                stdin_list = [stdin_str] if isinstance(stdin_str, basestring) \
+                    else [ str(line) for line in stdin_str ]
+            except:
+                raise ValueError(("stdin_key '{}' must point to either string"
+                                  " or list of strings, not '{}'.")
+                                  .format(self.stdin_key, stdin_str))
+
             stdin = subprocess.PIPE
         else:
             stdin = None
@@ -507,23 +514,15 @@ class CmdTask(ScriptTask):
 
             # send stdin if desired and wait for subprocess to complete
             if self.stdin_key:
-                # if p.stdin and sys.stdin.encoding:
-                try:
-                    (stdout_data, stderr_data) = p.communicate(
-                        fw_spec[self.stdin_key])
-                    #    fw_spec[self.stdin_key].encode(**ENCODING_PARAMS))
-                except Exception as exc:
-                    self.logger.exception(
-                        "Communcating 'fw_spec[{:s}] = {:s}' failed with exception '{}'."
-                        .format(self.stdin_key, fw_spec[self.stdin_key], exc))
-            else:
-                try:
-                    (stdout_data, stderr_data) = p.communicate()
-                except Exception as exc:
-                    self.logger.exception(
-                        "Communcating failed with exception '{}'.".format(exc))
+                p.stdin.writelines(stdin_list)
+                p.stdin.close()
 
             for t in threads: t.join()  # wait for stream tee threads
+            # tee threads close stderr and stdout
+
+            returncode = p.wait()
+            self.logger.info(
+                "Process returned '{}'.".format(returncode))
 
             # write out the output, error files if specified
             # stdout_str = stdout_data.decode(errors="ignore", **ENCODING_PARAMS) if isinstance(
@@ -540,18 +539,11 @@ class CmdTask(ScriptTask):
             if self.store_stderr:
                 output['stderr'] = self._stderr.read()
 
-            returncode = None
-            if hasattr(p,'returncode'):
-                returncode = p.returncode
-                self.logger.info(
-                    "Process returned '{}'.".format(p.returncode))
-                output['returncode'] = returncode
-            else:
-                self.logger.warning("Process did not return.")
+            output['returncode'] = returncode
 
-            if self.defuse_bad_rc and (returncode is None or returncode != 0):
+            if self.defuse_bad_rc and returncode != 0:
                 fwaction = FWAction(stored_data=output, defuse_children=True)
-            elif self.fizzle_bad_rc and (returncode is None or returncode != 0):
+            elif self.fizzle_bad_rc and returncode != 0:
                 raise RuntimeError(
                     'CmdTask fizzled! Return code: {}, output: {}'
                     .format(returncode, output))
