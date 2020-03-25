@@ -201,6 +201,14 @@ env:
         prefix: srun
         substitue: gmx_mpi
 
+      gmx_tools:
+        init:
+        - 'module("load","Stages/2019a","Intel/2019.3.199-GCC-8.3.0","IntelMPI/2019.3.199")'
+        - 'module("load","GromacsWrapper/0.8.0-Python-3.6.8","GROMACS-Top/2019.3")'
+        - 'module("load","imteksimcs/devel-local-Python-3.6.8")'
+        env:
+           FI_PROVIDER: tcp
+      
       join_thermo.py:
         init: 'module("load","mdtools")'
 
