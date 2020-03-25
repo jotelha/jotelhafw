@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# PYTHON_ARGCOMPLETE_OK
 #
 # render_run.py
 #
@@ -187,6 +188,12 @@ def main():
         default=FW_CONFIG_TEMPLATE_PREFIX, nargs='?')
 
     render_inspect_parser.set_defaults(func=render_inspect_action)
+
+    try:
+        import argcomplete
+        argcomplete.autocomplete(parser)
+    except:
+        pass
 
     # parse
     args = parser.parse_args()

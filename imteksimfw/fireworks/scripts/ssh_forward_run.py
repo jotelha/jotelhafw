@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# PYTHON_ARGCOMPLETE_OK
 #
 # ssh_forward_run.py
 #
@@ -65,6 +66,13 @@ def main():
         help='Make this tool more verbose')
     parser.add_argument('--debug', action='store_true',
         help='Make this tool print debug info')
+
+    try:
+        import argcomplete
+        argcomplete.autocomplete(parser)
+    except:
+        pass
+
     args = parser.parse_args()
 
     if args.debug:

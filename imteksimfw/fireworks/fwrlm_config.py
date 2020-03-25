@@ -31,7 +31,7 @@ import monty.serialization  # for reading config files
 # configuration handling modeled following
 # https://github.com/materialsproject/fireworks/blob/master/fireworks/fw_config.py
 
-FWRLM_CONFIG_FILE_DIR = os.path.join(os.path.expanduser('~'), ".fireworks")
+FWRLM_CONFIG_FILE_DIR = os.path.join(os.path.expanduser('~'), '.fireworks')
 FWRLM_CONFIG_FILE_NAME = 'FWRLM_config.yaml'
 FWRLM_CONFIG_FILE_ENV_VAR = 'FWRLM_CONFIG_FILE'
 
@@ -104,6 +104,7 @@ def override_user_settings():
     test_paths = [
         os.getcwd(),
         os.path.join(os.path.expanduser('~'), ".fireworks"),
+        os.path.expanduser('~'),
         root_dir,
     ]
 

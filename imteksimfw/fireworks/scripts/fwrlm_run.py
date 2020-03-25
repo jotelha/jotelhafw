@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# PYTHON_ARGCOMPLETE_OK
 #
 # fwrlm_run.py
 #
@@ -342,6 +343,12 @@ def main():
         formatter_class=ArgumentDefaultsAndRawDescriptionHelpFormatter)
 
     config_show_parser.set_defaults(func=show_config)
+
+    try:
+        import argcomplete
+        argcomplete.autocomplete(parser)
+    except:
+        pass
 
     # parse
     args = parser.parse_args()
