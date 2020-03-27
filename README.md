@@ -42,7 +42,8 @@ and copy it to your home directory as `FWRLM_config.yaml`. It might look like
 this:
 
 ```
-MACHINE: JUWELS
+MACHINE:   JUWELS
+SCHEDULER: SLURM
 
 FW_CONFIG_SKEL_PREFIX:     /path/to/imteksimfw/fireworks/examples/fw_config
 FW_CONFIG_TEMPLATE_PREFIX: /path/to/imteksimfw/fireworks/templates/fw_config
