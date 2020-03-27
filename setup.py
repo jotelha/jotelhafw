@@ -31,6 +31,7 @@ if __name__ == "__main__":
             'ansible>=2.9.1',
             'jinja2>=2.10',
             'jinja2-time>=0.2.0',
+            'paramiko>=2.4.2',
             'python-daemon>=2.2.4',
             'pid>=3.0.0',
             'psutil>=5.6.1',

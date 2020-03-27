@@ -77,20 +77,20 @@ SSH_KEY = os.path.join(os.path.expanduser('~'), ".ssh", "id_rsa")
 
 # MACHINE-specfific settings
 MACHINE = "JUWELS"
+SCHEDULER = 'SLURM'
 
 RLAUNCH_FWORKER_FILE = None
-# if not set explicitl, then stick to automatic convention
+# if not set explicitly, then stick to automatic convention
 # "${FW_CONFIG_PREFIX}/${MACHINE:lowercase}_noqueue_worker.yaml"
 
 QLAUNCH_FWORKER_FILE = None
-# if not set explicitl, then stick to automatic convention
+# if not set explicitly, then stick to automatic convention
 # "${FW_CONFIG_PREFIX}/${MACHINE:lowercase}_queue_offline_worker.yaml"
 
 QADAPTER_FILE = None
-# if not set explicitl, then stick to automatic convention
+# if not set explicitly, then stick to automatic convention
 # "${FW_CONFIG_PREFIX}/${MACHINE:lowercase}_{SCHEDULER_lowercase}_qadapter_offline.yaml"
 
-SCHEDULER = 'SLURM'
 
 
 def override_user_settings():

@@ -42,7 +42,7 @@ from imteksimfw.fireworks.fwrlm_config import config_to_dict, \
 
 from imteksimfw.fireworks.utilities.render import render_batch
 
-daemon_dict = {
+DAEMON_DICT = {
     'dummy': DummyManager,
     'ssh': SSHTunnelManager,
     'rlaunch': RLaunchManager,
@@ -51,11 +51,18 @@ daemon_dict = {
     'webgui': LPadWebGuiManager,
 }
 
-daemon_sets = {
-    'all': ['ssh', 'rlaunch', 'qlaunch', 'recover', 'webgui'],
-    'remote_worker': ['ssh', 'rlaunch', 'qlaunch', 'recover'],
-    'fw':  ['rlaunch', 'qlaunch', 'recover'],
-    **{k: [k] for k in daemon_dict.keys()},
+DAEMON_SETS = {
+    'all': [  # all services, including web gui
+        'ssh', 'rlaunch', 'qlaunch', 'recover', 'webgui'],
+    'hpc-worker': [  # ssh tunnel to db, local and queue submission rocket launcher, recovery of offline runs
+        'ssh', 'rlaunch', 'qlaunch', 'recover'],
+    'local-worker': [  # ssh tunnel to db and local rocket launcher
+        'ssh', 'rlaunch'],
+    'hpc-fw':  [  # all high-level FireWorks worker services (not ssh tunnel) on hpc system
+        'rlaunch', 'qlaunch', 'recover'],
+    'local-fw':  [  # all high-level FireWorks worker services (not ssh tunnel) on local system (no queue submission)
+        'rlaunch'],
+    **{k: [k] for k in DAEMON_DICT.keys()},
 }
 
 EX_OK = 0
@@ -67,7 +74,7 @@ EX_UNKNOWN = 4
 # CLI commands pendants
 def test_daemon(daemon):
     """Run directly for testing purposes."""
-    fwrlm = daemon_dict[daemon]()
+    fwrlm = DAEMON_DICT[daemon]()
     fwrlm.spawn()
 
 
@@ -81,7 +88,7 @@ def start_daemon(daemon):
     """
     logger = logging.getLogger(__name__)
 
-    fwrlm = daemon_dict[daemon]()
+    fwrlm = DAEMON_DICT[daemon]()
     try:
         p = multiprocessing.Process(target=fwrlm.spawn_daemon)
         p.start()
@@ -110,7 +117,7 @@ def check_daemon_status(daemon):
     """
     logger = logging.getLogger(__name__)
 
-    fwrlm = daemon_dict[daemon]()
+    fwrlm = DAEMON_DICT[daemon]()
     stat = fwrlm.check_daemon(raise_exc=False)
     logger.debug("{:s} daemon state: '{}'".format(daemon, stat))
     if stat == pid.PID_CHECK_RUNNING:
@@ -129,7 +136,7 @@ def stop_daemon(daemon):
     """Stop daemon and exit."""
     logger = logging.getLogger(__name__)
 
-    fwrlm = daemon_dict[daemon]()
+    fwrlm = DAEMON_DICT[daemon]()
     try:
         stat = fwrlm.stop_daemon()
     except Exception as exc:  # stopping failed
@@ -157,7 +164,7 @@ def restart_daemon(daemon):
 def act(args, action):
     """Perform any action (start, stop, ...) for one or multiple daemons."""
     logger = logging.getLogger(__name__)
-    daemons = {d for s in args.daemon for d in daemon_sets[s]}
+    daemons = {d for s in args.daemon for d in DAEMON_SETS[s]}
     logger.debug("Will evoke '{}' for set [{}]".format(
         action.__name__, ', '.join(list(daemons))))
     ret = EX_OK
@@ -248,7 +255,7 @@ def main():
     start_parser.add_argument(
         'daemon', type=str, nargs='+',
         help='Daemon name', metavar='DAEMON',
-        choices=set(daemon_sets.keys()))
+        choices=set(DAEMON_SETS.keys()))
 
     start_parser.set_defaults(func=lambda args: act(args, start_daemon))
 
@@ -260,7 +267,7 @@ def main():
     status_parser.add_argument(
         'daemon', type=str, nargs='+',
         help='Daemon name', metavar='DAEMON',
-        choices=set(daemon_sets.keys()))
+        choices=set(DAEMON_SETS.keys()))
 
     status_parser.set_defaults(
         func=lambda args: act(args, check_daemon_status))
@@ -273,7 +280,7 @@ def main():
     stop_parser.add_argument(
         'daemon', type=str, nargs='+',
         help='Daemon name', metavar='DAEMON',
-        choices=set(daemon_sets.keys()))
+        choices=set(DAEMON_SETS.keys()))
 
     stop_parser.set_defaults(func=lambda args: act(args, stop_daemon))
 
@@ -285,7 +292,7 @@ def main():
     restart_parser.add_argument(
         'daemon', type=str, nargs='+',
         help='Daemon name', metavar='DAEMON',
-        choices=set(daemon_sets.keys()))
+        choices=set(DAEMON_SETS.keys()))
 
     restart_parser.set_defaults(func=lambda args: act(args, restart_daemon))
 
@@ -297,7 +304,7 @@ def main():
     test_parser.add_argument(
         'daemon', type=str,
         help='Daemon name', metavar='DAEMON',
-        choices=set(daemon_dict.keys()))
+        choices=set(DAEMON_DICT.keys()))
 
     test_parser.set_defaults(func=test_daemon)
 
