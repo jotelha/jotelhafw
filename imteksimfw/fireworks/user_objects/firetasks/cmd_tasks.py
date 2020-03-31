@@ -32,6 +32,14 @@ import subprocess
 import sys
 import threading
 
+import pickle
+# try:  # try to unpickle func in PyTask if bytes
+#     import dill
+# except ModuleNotFoundError:  # py >= 3.6
+#     pass
+
+from six.moves import builtins
+
 # fireworks-internal
 from fireworks.core.firework import FiretaskBase, FWAction
 from fireworks.user_objects.firetasks.script_task import ScriptTask, PyTask
@@ -80,7 +88,6 @@ def trace_method(func):
     """Decorator to trace own methods."""
     @functools.wraps(func)
     def wrapper_trace_method(self, *args, **kwargs):
-        #print(type(self))
         if hasattr(self, '_call_log_stream'):
             call_log_stream = self._call_log_stream
         else:
@@ -100,7 +107,19 @@ def trace_method(func):
 
 
 class EnvTask(FiretaskBase):
-    """Abstract base class for tasks that modify the environment."""
+    """Abstract base class for tasks that modify the environmen.
+
+    All derivatives will have the option to
+      * specify an environment 'env' to be looked up within the worker file,
+      * redirect stdout and stderr streams to files 'stdout_file' and
+        'stderr_file',
+      * store stdout and stderr in database if 'stored_stdout' or
+        'store_stderr' are set,
+      * trace execution and stream calls and variable changes to
+        'call_log_file' and 'vars_log_file' if the package 'hunter' is
+        available.
+      * stream a simple (non-exhaustie) command history to a 'py_hist_file'.
+    """
 
     # required_params = []
     other_params = [
@@ -119,7 +138,6 @@ class EnvTask(FiretaskBase):
     def _py_hist_append(self, line):
         self._py_hist_stream.write(line + '\n')
 
-    @trace_method
     def _parse_global_init_block(self, fw_spec):
         """Parse global init block."""
         # _fw_env : env : init may provide a list of python commans
@@ -134,7 +152,6 @@ class EnvTask(FiretaskBase):
                 self._py_hist_append(cmd)
                 exec(cmd)
 
-    @trace_method
     def _parse_global_env_block(self, fw_spec):
         """Parse global envronment block."""
         # per default, process inherits current environment
@@ -433,7 +450,6 @@ class CmdTask(EnvTask, ScriptTask):
         """List of arguments (including command) as list of str only."""
         return [a if isinstance(a, str) else str(a) for a in self._args]
 
-    @trace_method
     def _parse_cmd_init_block(self, fw_spec):
         """Parse per-command init block."""
         cmd_block = fw_spec["_fw_env"][self.env]["cmd"][self.cmd]
@@ -447,7 +463,6 @@ class CmdTask(EnvTask, ScriptTask):
                 self._py_hist_append(cmd)
                 exec(cmd)
 
-    @trace_method
     def _parse_cmd_substitute_block(self, fw_spec):
         """Parse per-command substitute block."""
         cmd_block = fw_spec["_fw_env"][self.env]["cmd"][self.cmd]
@@ -462,7 +477,6 @@ class CmdTask(EnvTask, ScriptTask):
                 self.cmd))
             self._args.append(self.cmd)
 
-    @trace_method
     def _parse_cmd_prefix_block(self, fw_spec):
         """Parse per-command prefix block."""
         cmd_block = fw_spec["_fw_env"][self.env]["cmd"][self.cmd]
@@ -518,7 +532,6 @@ class CmdTask(EnvTask, ScriptTask):
 
             self._args = processed_prefix_list + self._args  # concat two lists
 
-    @trace_method
     def _parse_cmd_env_block(self, fw_spec):
         """Parse command-specific environment block."""
         # per default, process inherits current environment
@@ -540,7 +553,6 @@ class CmdTask(EnvTask, ScriptTask):
                     str(key), str(value)))
                 os.environ[str(key)] = str(value)
 
-    @trace_method
     def _parse_cmd_block(self, fw_spec):
         """Parse command-specific environment block."""
         if "cmd" in fw_spec["_fw_env"][self.env] \
@@ -555,7 +567,6 @@ class CmdTask(EnvTask, ScriptTask):
         else:  # no command-specific expansion in environment, use as is
             self._args.append(self.cmd)
 
-    @trace_method
     def _parse_args(self, fw_spec):
         self._args = []
         # in case of a specified worker environment
@@ -582,7 +593,7 @@ class CmdTask(EnvTask, ScriptTask):
             ' '.join(self.args)))
         self.logger.debug("Process environment '{}'.".format(os.environ))
 
-
+    @trace_method
     def _run_task_internal(self, fw_spec):
         """Run task."""
         stdout = subprocess.PIPE if self.store_stdout or self.stdout_file else None
@@ -850,6 +861,23 @@ class PyEnvTask(EnvTask, PyTask):
 
         The injection into 'builtin' is necessary as evaluating 'init' and
         evoking 'func' won't happen within the same local scope.
+
+        As PyEnvTask automaticlly tries to unpickle a bytes sequence with
+        'dill', the same result can be achieved with shorter
+
+        >>> func_str = dill.dumps(get_element_name)
+        >>> ft = PyEnvTask(func=func_str, args=[18], outputs=['element_name'])
+        >>> fw_action = ft.run_task({})
+
+        If 'py_hist_file' has been specified, then this task will produce
+        a simple python file with the purpose to
+        rerun the the call quickly outside of the FireWorks framework:
+
+        >>> import dill
+        >>> func = dill.loads(b'SOME_PICKLED_SEQUENCE')
+        >>> args = [18]
+        >>> kwargs = {}
+        >>> output = func(*args, **kwargs)
     """
     # I would prefer a plain-text injection, but 'dill' does the job.
 
@@ -866,7 +894,29 @@ class PyEnvTask(EnvTask, PyTask):
     # note that we are not using "optional_params" because we do not want to do
     # strict parameter checking in FireTaskBase due to "auto_kwargs" option
 
-    @trace_method
+    def _get_func(self, fw_spec):
+        """Get function from string."""
+        # self.logger.info("type('func') == str.")
+        toks = self['func'].rsplit('.', 1)
+
+        if len(toks) == 2:
+            modname, funcname = toks
+            self._py_hist_append('from {} import {} as func'
+                .format(modname, funcname))
+            self.logger.info(
+                "'func' is a fully qualified name, 'from {} import {}'"
+                    .format(modname, funcname))
+            mod = __import__(modname, globals(), locals(), [str(funcname)], 0)
+            func = getattr(mod, funcname)
+        else:
+            # Handle built in functions.
+            self._py_hist_append('func = {}'.format(toks[0]))
+            self.logger.info(
+                "'func' is an unqualified name '{}', call directly."
+                    .format(toks[0]))
+            func = getattr(builtins, toks[0])
+        return func
+
     def _parse_local_init_block(self, fw_spec):
         """Parse task-internal preceding code block."""
         # _fw_env : env : init may provide a list of python commans
@@ -881,14 +931,121 @@ class PyEnvTask(EnvTask, PyTask):
                 self._py_hist_append(cmd)
                 exec(cmd)
 
+    @trace_method
     def _run_task_internal(self, fw_spec):
         # run snippet
         self._parse_global_block(fw_spec)
         self._parse_local_init_block(fw_spec)
-        return PyTask.run_task(self, fw_spec)
+
+        func = self._get_func(fw_spec)
+
+        assert callable(func), ("Evaluated 'func' is {}, must be 'callable'"
+            .format(type(func)))
+
+        args = list(self.get('args', []))  # defensive copy
+
+        self.logger.info("'args = {}'".format(args))
+
+        inputs = self.get('inputs', [])
+        self.logger.info("'inputs = {}'".format(inputs))
+
+        assert isinstance(inputs, list)
+        for item in inputs:
+            args.append(fw_spec[item])
+
+        if self.get('auto_kwargs'):
+            kwargs = {k: v for k, v in self.items()
+                      if not (k.startswith('_')
+                              or k in self.required_params
+                              or k in self.other_params)}
+        else:
+            kwargs = self.get('kwargs', {})
+
+        self.logger.info("'kwargs = {}'".format(kwargs))
+
+        if len(args) > 0:
+            self._py_hist_append('args = {}'.format(args))
+        else:
+            self._py_hist_append('args = []')
+
+        if len(kwargs) > 0:
+            self._py_hist_append('kwargs = {}'.format(args))
+        else:
+            self._py_hist_append('kwargs = {}')
+
+        self._py_hist_append('output = func(*args, **kwargs)')
+
+        output = func(*args, **kwargs)
+
+        if isinstance(output, FWAction):
+            self.logger.info("'type(output) == FWAction', return directly.")
+            return output
+
+        self.logger.info("'type(output) == {}', build FWAction."
+            .format(type(output)))
+        actions = {}
+        outputs = self.get('outputs', [])
+        assert isinstance(outputs, list)
+        if len(outputs) == 1:
+            if self.get('chunk_number') is None:
+                # actions['update_spec'] = {outputs[0]: output}
+                actions['mod_spec'] = [{'_set': {outputs[0]: output}}]
+            else:
+                if isinstance(output, (list, tuple, set)):
+                    mod_spec = [{'_push': {outputs[0]: i}} for i in output]
+                else:
+                    mod_spec = [{'_push': {outputs[0]: output}}]
+                actions['mod_spec'] = mod_spec
+        elif len(outputs) > 1:
+            assert isinstance(output, (list, tuple, set))
+            assert len(output) == len(outputs)
+            # actions['update_spec'] = dict(zip(outputs, output))
+            actions['mod_spec'] = [{'_set': dict(zip(outputs, output))}]
+
+        if self.get('stored_data_varname'):
+            actions['stored_data'] = {self['stored_data_varname']: output}
+        if len(actions) > 0:
+            self.logger.info("Built actions '{}.'".format(actions))
+            return FWAction(**actions)
 
     def _load_params(self, d):
         """Load parameters from task specs into attributes."""
         EnvTask._load_params(self, d)
         # PyTask does not need to load params (?)
         self.init = self.get('init', None)
+
+
+class PickledPyEnvTask(PyEnvTask):
+    _fw_name = 'PickledPyEnvTask'
+
+    # try to unpickle with dill if 'func' is bytes
+    def _get_func(self, fw_spec):
+        """Get function from pickled bytes."""
+
+        # self.logger.info("type('func') == bytes, trying to unpickle.")
+        self._py_hist_append('import pickle')
+        func_bytes = self['func']
+        if isinstance(func_bytes, str):
+             self.logger.info("type('func') == str, convert to bytes.")
+             # when serializing a task, FireWorks apparently
+             # puts the string representation
+             # of the bytes objetc into the database
+             func_bytes = eval(func_bytes)
+        self._py_hist_append('func = pickle.loads({})'.format(func_bytes))
+        func = pickle.loads(func_bytes)
+        return func
+        # # first try pickle, then try dill, TODO: no ugly nesting
+        # try:
+        #     func = pickle.loads(self['func'])
+        # except pickle.UnpicklingError:
+        #     self.logger.exception(
+        #         "type('func') == byte, but not 'unpickable' with 'pickle'.")
+        #     if 'dill' in sys.modules:
+        #         try:
+        #             func = dill.loads(self['func'])
+        #         except dill.UnpicklingError:
+        #             self.logger.exception(
+        #                 "type('func') == byte, but not 'unpickable' with 'dill'.")
+        #             raise
+        #     else:
+        #         raise

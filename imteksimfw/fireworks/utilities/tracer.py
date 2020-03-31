@@ -29,7 +29,7 @@ import sys
 try:  # allow for simple tracing when hunter tracer is available
     import hunter
     TRACE = True
-except:
+except Exception:
     TRACE = False
 
 
