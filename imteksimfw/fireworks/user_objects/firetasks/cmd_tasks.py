@@ -47,6 +47,8 @@ from fireworks.user_objects.firetasks.script_task import ScriptTask, PyTask
 # in order to have a somewhat centralized encoding configuration
 from fireworks.utilities.fw_serializers import ENCODING_PARAMS
 
+from fireworks.utilities.dict_mods import arrow_to_dot
+
 from imteksimfw.fireworks.utilities.tracer import trace_func
 
 __author__ = 'Johannes Hoermann'
@@ -71,7 +73,7 @@ def tee(infile, *files):
     t.start()
     return t
 
-
+## TODO: similar context for temporarily modified sys.path & sites:
 class TemporaryOSEnviron:
     """Preserve original os.environ context manager."""
 
@@ -82,6 +84,17 @@ class TemporaryOSEnviron:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Restore backed up os.environ."""
         os.environ = self._original_environ
+
+class TemporarySysPath:
+    """Preserve original os.environ context manager."""
+
+    def __enter__(self):
+        """Store backup of current sys.path."""
+        self._original_sys_path = sys.path.copy()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Restore backed up sys.path."""
+        sys.path = self._original_sys_path
 
 
 def trace_method(func):
@@ -105,6 +118,21 @@ def trace_method(func):
          )(func)(self, *args, **kwargs)
     return wrapper_trace_method
 
+
+def get_nested_dict_value(d, key):
+    """Uses '.'-splittable string as key to access nested dict."""
+    try:
+        val = d[key]
+    except KeyError:
+        key = key.replace("->", ".")  # make sure no -> left
+        try:
+            key_prefix, key_suffix = key.split('.')
+        except ValueError:   # not enough values to unpack
+            raise KeyError
+
+        val = get_nested_dict_value(d[key_prefix], key_suffix)
+
+    return val
 
 class EnvTask(FiretaskBase):
     """Abstract base class for tasks that modify the environmen.
@@ -138,6 +166,10 @@ class EnvTask(FiretaskBase):
     def _py_hist_append(self, line):
         self._py_hist_stream.write(line + '\n')
 
+
+    # TODO: would like to use these _parse_*** functions
+    # as 'macros', i.e. executing everything in their
+    # caller's frame, not sure how to.
     def _parse_global_init_block(self, fw_spec):
         """Parse global init block."""
         # _fw_env : env : init may provide a list of python commans
@@ -267,7 +299,7 @@ class EnvTask(FiretaskBase):
         # depending on flags.
         self._prepare_logger()
 
-        with TemporaryOSEnviron():
+        with TemporaryOSEnviron(), TemporarySysPath():
             ret = self._run_task_internal(fw_spec)
 
         if isinstance(ret, FWAction):
@@ -814,6 +846,7 @@ class PyEnvTask(EnvTask, PyTask):
             deliberately long to avoid potential name conflicts.
         - inputs ([str]): a list of keys in spec which will be used as inputs;
             the generated arguments list will be appended to args.
+            Can be key '.' or '->'-delimited key to nested fields.
         - outputs ([str]): a list of spec keys that will be used to pass
             the function's outputs to child fireworks.
         - env (str): allows to specify an environment possibly defined in the
@@ -862,22 +895,29 @@ class PyEnvTask(EnvTask, PyTask):
         The injection into 'builtin' is necessary as evaluating 'init' and
         evoking 'func' won't happen within the same local scope.
 
-        As PyEnvTask automaticlly tries to unpickle a bytes sequence with
-        'dill', the same result can be achieved with shorter
+        In order to make some Python package available that requires
+        the loading of an environmnet module, the environment-specific
+        snippet can be stored within a worker file, i.e.
 
-        >>> func_str = dill.dumps(get_element_name)
-        >>> ft = PyEnvTask(func=func_str, args=[18], outputs=['element_name'])
-        >>> fw_action = ft.run_task({})
+          name:     juwels_noqueue_worker
+          category: [ 'juwels_noqueue' ]
+          query:    '{}'
+          env:
+            modified_py_env:
+              init:
+              - 'import site, sys, os, importlib, builtins'
+              - 'sys.path.insert(0, os.path.join(os.environ["MODULESHOME"], "init"))'
+              - 'builtins.module = importlib.import_module("env_modules_python").module'
+              - 'module("purge")'
+              - 'module("use",os.path.join(os.environ["PROJECT"],"common","juwels","easybuild","otherstages"))'
+              - 'module("load","Stages/2019a","Intel/2019.3.199-GCC-8.3.0","IntelMPI/2019.3.199")'
+              - 'module("load","ASE/3.17.0-Python-3.6.8")'
+              - 'module("load","imteksimcs/devel-local-Python-3.6.8")'
+              - 'module("load","imteksimpyenv/devel-Python-3.6.8")'
+              - 'for d in list(set(os.environ["PYTHONPATH"].split(":")) - set(sys.path)): site.addsitedir(d)'
 
-        If 'py_hist_file' has been specified, then this task will produce
-        a simple python file with the purpose to
-        rerun the the call quickly outside of the FireWorks framework:
-
-        >>> import dill
-        >>> func = dill.loads(b'SOME_PICKLED_SEQUENCE')
-        >>> args = [18]
-        >>> kwargs = {}
-        >>> output = func(*args, **kwargs)
+        then looked up and executed by PyEnvTask before the actual call to 'func'
+        if the task's parameter 'env' points to 'mod_py_env'.
     """
     # I would prefer a plain-text injection, but 'dill' does the job.
 
@@ -951,7 +991,7 @@ class PyEnvTask(EnvTask, PyTask):
 
         assert isinstance(inputs, list)
         for item in inputs:
-            args.append(fw_spec[item])
+            args.append(get_nested_dict_value(fw_spec, item))
 
         if self.get('auto_kwargs'):
             kwargs = {k: v for k, v in self.items()
@@ -1016,13 +1056,39 @@ class PyEnvTask(EnvTask, PyTask):
 
 
 class PickledPyEnvTask(PyEnvTask):
+    """Same as PyEnvTask, but expects pickled function instead of function name.
+
+    As bytes might actually be stored as their bytes literals string
+    representation within FireWork's, the task will try to eval 'func'
+    before unpickling it if its type is str and not bytes.
+
+    Examples:
+        The shorter equivalent to above's PyEnvTask example looks likes this:
+
+        >>> func_str = dill.dumps(get_element_name)
+        >>> ft = PyEnvTask(func=func_str, args=[18], outputs=['element_name'])
+
+        Of course, all references within the pickled object must be available
+        at execution time. If the function has been pickled with 'dill',
+        then 'dill' has to be available when unpickling.
+
+        If 'py_hist_file' has been specified, then this task will produce
+        a simple python file with the purpose to
+        rerun the the call quickly outside of the FireWorks framework:
+
+        >>> import pickle
+        >>> func = pickle.loads(b'SOME_PICKLED_SEQUENCE')
+        >>> args = [18]
+        >>> kwargs = {}
+        >>> output = func(*args, **kwargs)
+    """
+
     _fw_name = 'PickledPyEnvTask'
 
     # try to unpickle with dill if 'func' is bytes
     def _get_func(self, fw_spec):
         """Get function from pickled bytes."""
 
-        # self.logger.info("type('func') == bytes, trying to unpickle.")
         self._py_hist_append('import pickle')
         func_bytes = self['func']
         if isinstance(func_bytes, str):
@@ -1034,18 +1100,3 @@ class PickledPyEnvTask(PyEnvTask):
         self._py_hist_append('func = pickle.loads({})'.format(func_bytes))
         func = pickle.loads(func_bytes)
         return func
-        # # first try pickle, then try dill, TODO: no ugly nesting
-        # try:
-        #     func = pickle.loads(self['func'])
-        # except pickle.UnpicklingError:
-        #     self.logger.exception(
-        #         "type('func') == byte, but not 'unpickable' with 'pickle'.")
-        #     if 'dill' in sys.modules:
-        #         try:
-        #             func = dill.loads(self['func'])
-        #         except dill.UnpicklingError:
-        #             self.logger.exception(
-        #                 "type('func') == byte, but not 'unpickable' with 'dill'.")
-        #             raise
-        #     else:
-        #         raise

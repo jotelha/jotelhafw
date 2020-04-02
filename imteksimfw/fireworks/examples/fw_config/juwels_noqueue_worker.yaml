@@ -262,3 +262,16 @@ env:
 
       smbsync.py:
         init: 'module("load","mdtools")'
+
+  imteksimpy:
+    init:
+    - 'import site, sys, os, importlib, builtins'
+    - 'sys.path.insert(0, os.path.join(os.environ["MODULESHOME"], "init"))'
+    - 'builtins.module = importlib.import_module("env_modules_python").module'
+    - 'module("purge")'
+    - 'module("use",os.path.join(os.environ["PROJECT"],"common","juwels","easybuild","otherstages"))'
+    - 'module("load","Stages/2019a","Intel/2019.3.199-GCC-8.3.0","IntelMPI/2019.3.199")'
+    - 'module("load","ASE/3.17.0-Python-3.6.8")'
+    - 'module("load","imteksimcs/devel-local-Python-3.6.8")'
+    - 'module("load","imteksimpyenv/devel-Python-3.6.8")'
+    - 'for d in list(set(os.environ["PYTHONPATH"].split(":")) - set(sys.path)): site.addsitedir(d)'
