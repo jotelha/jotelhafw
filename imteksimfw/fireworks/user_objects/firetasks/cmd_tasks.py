@@ -38,6 +38,7 @@ import pickle
 # except ModuleNotFoundError:  # py >= 3.6
 #     pass
 
+from contextlib import redirect_stdout, redirect_stderr
 from six.moves import builtins
 
 # fireworks-internal
@@ -73,7 +74,7 @@ def tee(infile, *files):
     t.start()
     return t
 
-## TODO: similar context for temporarily modified sys.path & sites:
+
 class TemporaryOSEnviron:
     """Preserve original os.environ context manager."""
 
@@ -85,6 +86,9 @@ class TemporaryOSEnviron:
         """Restore backed up os.environ."""
         os.environ = self._original_environ
 
+
+## TODO: context for temporarily modified sys.path & sites,
+# probably not perfect
 class TemporarySysPath:
     """Preserve original os.environ context manager."""
 
@@ -291,15 +295,19 @@ class EnvTask(FiretaskBase):
         # create non-default streams to insert into db if desired
         if self.store_stdout:
             self._stdout = io.TextIOWrapper(io.BytesIO(),**ENCODING_PARAMS)
+        else:
+            self._stdout = sys.stdout
 
         if self.store_stderr:
             self._stderr = io.TextIOWrapper(io.BytesIO(),**ENCODING_PARAMS)
+        else:
+            self._stderr = sys.stderr
 
         # log messages std streams are logged to files and database,
         # depending on flags.
         self._prepare_logger()
 
-        with TemporaryOSEnviron(), TemporarySysPath():
+        with TemporaryOSEnviron(), TemporarySysPath(), redirect_stdout(self._stdout), redirect_stderr(self._stderr):
             ret = self._run_task_internal(fw_spec)
 
         if isinstance(ret, FWAction):
