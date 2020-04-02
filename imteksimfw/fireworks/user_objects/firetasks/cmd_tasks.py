@@ -230,40 +230,19 @@ class EnvTask(FiretaskBase):
 
         # create and append custom handles
 
-        # only info & debug to stdout
-        def stdout_filter(record):
-            return record.levelno <= logging.INFO
-
-        stdouth = logging.StreamHandler(stdout)
-        stdouth.setLevel(self.loglevel)
-        stdouth.addFilter(stdout_filter)
-
         stderrh = logging.StreamHandler(stderr)
-        stderrh.setLevel(logging.WARNING)
+        stderrh.setLevel(self.loglevel)
 
-        self.logger.addHandler(stdouth)
         self.logger.addHandler(stderrh)
-
-        if self.store_stdout:
-            outh = logging.StreamHandler(self._stdout)
-            outh.setLevel(self.loglevel)
-            outh.addFilter(stdout_filter)
-            self.logger.addHandler(outh)
 
         if self.store_stderr:
             errh = logging.StreamHandler(self._stderr)
-            errh.setLevel(logging.WARNING)
+            errh.setLevel(self.loglevel)
             self.logger.addHandler(errh)
-
-        if self.stdout_file:
-            outfh = logging.FileHandler(self.stdout_file, mode='a', **ENCODING_PARAMS)
-            outfh.setLevel(self.loglevel)
-            outfh.addFilter(stdout_filter)
-            self.logger.addHandler(outfh)
 
         if self.stderr_file:
             errfh = logging.FileHandler(self.stderr_file, mode='a', **ENCODING_PARAMS)
-            errfh.setLevel(logging.WARNING)
+            errfh.setLevel(self.loglevel)
             self.logger.addHandler(errfh)
 
         if self.py_hist_file:
@@ -307,7 +286,10 @@ class EnvTask(FiretaskBase):
         # depending on flags.
         self._prepare_logger()
 
-        with TemporaryOSEnviron(), TemporarySysPath(), redirect_stdout(self._stdout), redirect_stderr(self._stderr):
+        # TODO: redirect of stdout and stderr won't tee into file if desired
+        # Pull 'tee' functionality of CmdTask one level up here.
+        with TemporaryOSEnviron(), TemporarySysPath(), \
+                redirect_stdout(self._stdout), redirect_stderr(self._stderr):
             ret = self._run_task_internal(fw_spec)
 
         if isinstance(ret, FWAction):
