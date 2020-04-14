@@ -676,7 +676,7 @@ class CmdTask(EnvTask, ScriptTask):
             else '{}={}'.format(k, v) for k, v in kwargs.items()]
         kwargs_str = ', '.join(kwargs_str_list)
 
-        self._py_hist_append('# os.environ = {}\n'.format(dict(os.environ)))
+        self._py_hist_append('# os.environ = {}'.format(dict(os.environ)))
 
         stdoutstr = 'subprocess.PIPE' if self.store_stdout or self.stdout_file else 'None'
         stderrstr = 'subprocess.PIPE' if self.store_stderr or self.stderr_file else 'None'
@@ -688,21 +688,22 @@ class CmdTask(EnvTask, ScriptTask):
         else:
             stdinstr = 'None'
 
-        self._py_hist_append('\n')
-        self._py_hist_append('p = subprocess.Popen(\n')
-        self._py_hist_append('    {},\n'.format(self.args))
-        self._py_hist_append('    stdin={},\n'.format(stdinstr))
-        self._py_hist_append('    stdout={},\n'.format(stdoutstr))
-        self._py_hist_append('    stderr={},\n'.format(stderrstr))
-        self._py_hist_append('    env=os.environ')
+        self._py_hist_append('')
+        self._py_hist_append('p = subprocess.Popen(')
+        self._py_hist_append('    {},'.format(self.args))
+        self._py_hist_append('    stdin={},'.format(stdinstr))
+        self._py_hist_append('    stdout={},'.format(stdoutstr))
+        self._py_hist_append('    stderr={},'.format(stderrstr))
+        self._py_hist_append('    env=os.environ,')
         if len(encoding_params_str) > 0:
-            self._py_hist_append(',\n    {}'.format(encoding_params_str))
+            self._py_hist_append('    {},'.format(encoding_params_str))
         if len(kwargs) > 0:
-            self._py_hist_append(',\n    {}'.format(kwargs_str))
-        self._py_hist_append(')\n\n')
+            self._py_hist_append('    {},'.format(kwargs_str))
+        self._py_hist_append(')')
+        self._py_hist_append('')
 
         if self.stdin_key:
-            self._py_hist_append('p.stdin.writelines({})\n'.format(stdin_list))
+            self._py_hist_append('p.stdin.writelines({})'.format(stdin_list))
             self._py_hist_append('p.stdin.close()')
 
         self._py_hist_append('ret = p.wait()')
