@@ -604,7 +604,7 @@ class CmdTask(EnvTask, ScriptTask):
     def _parse_args(self, fw_spec):
         self._args = []
         # in case of a specified worker environment
-        self._parse_global_block()
+        self._parse_global_block(fw_spec)
         if self.env and "_fw_env" in fw_spec \
                 and self.env in fw_spec["_fw_env"]:
             # check whether there is any machine-specific "expansion" for
