@@ -1021,13 +1021,13 @@ class PyEnvTask(EnvTask, PyTask):
         self.logger.info("'kwargs_inputs = {}'".format(kwargs_inputs))
         assert isinstance(kwargs_inputs, dict), "'kwargs_inputs' must be dict."
         for kwarg_name, kwarg_key in kwargs_inputs.items():
-            kwargs[kwarg_name](get_nested_dict_value(fw_spec, kwarg_key))
+            kwargs[kwarg_name] = get_nested_dict_value(fw_spec, kwarg_key)
 
         if len(args) > 0:
             self._py_hist_append('args = {}'.format(args))
         else:
             self._py_hist_append('args = []')
-            
+
         if len(kwargs) > 0:
             self._py_hist_append('kwargs = {}'.format(args))
         else:
