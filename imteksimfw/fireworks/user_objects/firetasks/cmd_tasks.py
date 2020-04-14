@@ -1057,8 +1057,8 @@ class PyEnvTask(EnvTask, PyTask):
                     mod_spec = [{'_push': {outputs[0]: output}}]
                 actions['mod_spec'] = mod_spec
         elif len(outputs) > 1:
-            assert isinstance(output, (list, tuple, set))  # fails in case of numpy array
-            assert len(output) == len(outputs)
+            # assert isinstance(output, (list, tuple, set))  # fails in case of numpy array
+            assert len(output) == len(outputs) # implies above assertion and should incorporate more iterable types
             # actions['update_spec'] = dict(zip(outputs, output))
             actions['mod_spec'] = [{'_set': dict(zip(outputs, output))}]
 
