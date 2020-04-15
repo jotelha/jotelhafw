@@ -156,8 +156,7 @@ env:
   python:
     init:
     - 'import sys, os, importlib, builtins'
-    - 'sys.path.insert(0, os.path.join(os.environ["MODULESHOME"], "init"))'
-    - 'builtins.module = importlib.import_module("env_modules_python").module'
+    - 'builtins.module = importlib.import_module("imteksimfw.utilities.env_modules_python").module'
     - 'module("purge")'
     - 'module("use",os.path.join(os.environ["PROJECT"],"common","juwels","easybuild","otherstages"))'
     - 'module("load","Stages/2019a")'
@@ -267,8 +266,7 @@ env:
   imteksimpy:
     init:
     - 'import site, sys, os, importlib, builtins'
-    - 'sys.path.insert(0, os.path.join(os.environ["MODULESHOME"], "init"))'
-    - 'builtins.module = importlib.import_module("env_modules_python").module'
+    - 'builtins.module = importlib.import_module("imteksimfw.utilities.env_modules_python").module'
     - 'module("purge")'
     - 'module("use",os.path.join(os.environ["PROJECT"],"common","juwels","easybuild","otherstages"))'
     - 'module("load","Stages/2019a","Intel/2019.3.199-GCC-8.3.0","IntelMPI/2019.3.199")'
