@@ -683,7 +683,7 @@ class CmdTask(EnvTask, ScriptTask):
         if self.stdin_key:
             stdinstr = 'subprocess.PIPE'
         elif self.stdin_file:
-            stdinstr = 'open({:s}, "r", "{:s}")'.format(
+            stdinstr = 'open("{:s}", "r", {:s})'.format(
                 self.stdin_file, encoding_params_str)
         else:
             stdinstr = 'None'
