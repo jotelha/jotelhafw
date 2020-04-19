@@ -33,7 +33,7 @@ import subprocess
 import sys
 import threading
 
-from contextlib import ExitStack
+from contextlib import ExitStack, redirect_stdout, redirect_stderr
 from queue import Queue, Empty
 from six.moves import builtins
 
@@ -56,6 +56,11 @@ __email__ = 'johannes.hoermann@imtek.uni-freiburg.de'
 __date__ = 'Mar 18, 2020'
 
 
+# TODO: remove too verbose logging for pipes and streams
+
+# nice post on reading and writing streams:
+# https://stackoverflow.com/questions/33395004/python-streamio-reading-and-writing-from-the-same-stream
+
 # source: # https://stackoverflow.com/questions/4984428/python-subprocess-get-childrens-output-to-file-and-terminal
 def tee(infile, *files):
     """Print `infile` to `files` in a separate thread."""
@@ -71,6 +76,8 @@ def tee(infile, *files):
     return t
 
 
+# NonBlockingStreamReader might be obsolete as long as all streams to be read
+# are flushed and closed properly, eventually sending zero
 # https://gist.github.com/EyalAr/7915597
 class NonBlockingStreamReader:
     def __init__(self, stream):
@@ -78,7 +85,7 @@ class NonBlockingStreamReader:
         stream: the stream to read from.
                 Usually a process' stdout or stderr.
         '''
-
+        self.logger = logging.getLogger(__name__)
         self._s = stream
         self._q = Queue()
 
@@ -86,66 +93,127 @@ class NonBlockingStreamReader:
             '''
             Collect lines from 'stream' and put them in 'queue'.
             '''
-            for line in iter(stream.readline, ''):
+            for line in iter(stream.readline, b''):
+                if line is not None and len(line) > 0:
+                    self.logger.debug("Queueing line '{}'.".format(line))
                 queue.put(line)
 
         self._t = threading.Thread(target=_populate_queue,
-            args=(self._s, self._q))
+            args=(self._s, self._q), name="NonBlockingStreamReader")
         self._t.daemon = True
-        self._t.start() #start collecting lines from the stream
+        self._t.start()  # start collecting lines from the stream
 
     def readline(self, timeout=None):
         try:
-            return self._q.get(block=timeout is not None,
+            line = self._q.get(block=timeout is not None,
                 timeout=timeout)
+            if line is not None and len(line) > 0:
+                self.logger.debug("Popped line '{}'.".format(line))
+            return line
         except Empty:
+            self.logger.debug("Nothing popped.")
             return None
 
 
 # https://www.oreilly.com/library/view/python-cookbook/0596001673/ch06s03.html
 class Tee(threading.Thread):
-    """Non-blocking tee of instream to an arbitrary number of outstreams."""
-    def __init__(self, instream, *outstreams):
+    """Tee of instream to an arbitrary number of outstreams."""
+    def __init__(self, instream, *outstreams, **kwargs):
         """ constructor, setting initial variables """
+        self.logger = logging.getLogger(__name__)
         self._stopevent = threading.Event()
         self._sleepperiod = 1.0e-3  # s
         self.instream = instream
         self.outstreams = outstreams
-        threading.Thread.__init__(self)
+        threading.Thread.__init__(self, **kwargs)
 
     def run(self):
         """ main control loop """
-        with NonBlockingStreamReader(self.instream) as instream:
-            while not self._stopevent.isSet():
-                line = instream.readline()
-                if line is not None:
-                    for f in self.outstreams:
-                        f.write(line)
-                self._stopevent.wait(self._sleepperiod)
+        # following line allows for this thread not to block when waiting
+        # for data on a stream, but might also cause ending before the stream
+        # is finished
+        # instream = NonBlockingStreamReader(self.instream)
+        instream = self.instream
+        while not self._stopevent.isSet():
+            line = instream.readline()
+            if line is not None:
+                if hasattr(self, 'name') and line is not None and len(line) > 0:
+                    self.logger.debug("{} captured '{}'".format(self.name, line))
+                for f in self.outstreams:
+                    f.write(line)
+            self._stopevent.wait(self._sleepperiod)
+        for f in self.outstreams:
+            f.flush()
 
     def join(self, timeout=None):
         """ Stop the thread. """
         self._stopevent.set()
+        if hasattr(self, 'name'):
+            self.logger.debug("Ending thread '{}'".format(self.name))
         threading.Thread.join(self, timeout)
 
 
 class TeeContext():
     """Tee context manager."""
-    def __init__(self, instream, *outstreams):
+    def __init__(self, instream, *outstreams, **kwargs):
+        self.logger = logging.getLogger(__name__)
         self.instream = instream
         self.outstreams = outstreams
         self.tee = None
+        self.kwargs = kwargs
 
     def __enter__(self):
-        self.tee = Tee(self.instream, *self.outstreams)
+        if 'name' in self.kwargs:
+            self.logger.debug("Entering '{}' context.".format(self.kwargs['name']))
+        self.tee = Tee(self.instream, *self.outstreams, **self.kwargs)
         self.tee.start()
 
-    def __exit__(self):
-        self.tee.join(0.0)
+    def __exit__(self, et, ev, tb):
+        if 'name' in self.kwargs:
+            self.logger.debug("Leaving '{}' context.".format(self.kwargs['name']))
+        # self.tee.join(0.0)
+        self.tee.join()
+
+
+class PipeRWPair(io.BufferedRWPair):
+    """Wraps io.BufferedRWPair around binary os.pipe."""
+    def __init__(self, *args, name=None, **kwargs):
+        # if name is not None:
+        self.logger = logging.getLogger(__name__)
+        self.instance_name = name
+
+        self._pipeout, self._pipein = os.pipe()
+        if self.instance_name is not None:
+            self.logger.debug(
+                "{:s} opened pipe with infile {:d} and outfile {:d}."
+                    .format(self.instance_name, self._pipein, self._pipeout))
+
+        reader = io.FileIO(self._pipeout, mode='rb')
+        writer = io.FileIO(self._pipein, mode='wb')
+        super().__init__(reader, writer, *args, **kwargs)
+
+
+class TextIOPipe(io.TextIOWrapper):
+    """Wraps io.TextIOWrapper around PipeRWPair."""
+    def __init__(self, *args, name=None, **kwargs):
+        self.logger = logging.getLogger(__name__)
+        self.instance_name = name
+
+        pipe = PipeRWPair(name=name)
+        super().__init__(pipe, *args, **kwargs)
+
+
+class TextIOPipeContext(TextIOPipe):
+    """Flushed underlying pipe writer when leaving context."""
+    def __exit__(self, et, ev, tb):
+        if self.instance_name is not None:
+            self.logger.debug("Flushing {:s}.".format(self.instance_name))
+        self.flush()
 
 
 class LoggingContext():
-    def __init__(self, logger=None, handler=None, level=None, close=True):
+    """Modifies logging within context."""
+    def __init__(self, logger=None, handler=None, level=None, close=False):
         self.logger = logger
         self.level = level
         self.handler = handler
@@ -172,6 +240,9 @@ class LoggingContext():
         # implicit return of None => don't swallow exceptions
 
 
+# TODO: there seems to be an issue with unclean temporary environment
+# at CmdTask only resolvable after rlaunch restart:
+# NameError: name 'false' is not defined
 class TemporaryOSEnviron:
     """Preserve original os.environ context manager."""
 
@@ -249,6 +320,49 @@ class EnvTask(FiretaskBase):
         'call_log_file' and 'vars_log_file' if the package 'hunter' is
         available.
       * write simple (non-exhaustive) pseudo command history to 'py_hist_file'.
+
+    Examples:
+
+        For testing redirection of output and logging information to different
+        locations, use a simple bash snippet `trial.sh`
+
+            #!/bin/bash
+            echo "This goes to stdout!"
+            echo "This goes to stderr!" 1>&2
+
+        and evoke via CmdTask with
+
+        >>> from imteksimfw.fireworks.user_objects.firetasks.cmd_tasks import CmdTask
+        >>>
+        >>> import logging
+        >>>
+        >>> logformat = (
+        >>>             "[%(asctime)s-%(funcName)s()-%(filename)s:%(lineno)s]"
+        >>>             " %(levelname)s: %(message)s")
+        >>> logging.basicConfig(
+        >>>     level=logging.DEBUG, format=logformat)
+        >>>
+        >>> task = CmdTask(
+        >>>     cmd='bash',
+        >>>     opt='trial.sh',
+        >>>     stderr_file  = 'std.err',
+        >>>     stdout_file  = 'std.out',
+        >>>     stdlog_file  = 'std.log',
+        >>>     py_hist_file = 'simple_hist.py',
+        >>>     call_log_file= 'calls.log',
+        >>>     vars_log_file= 'vars.log',
+        >>>     store_stdout = True,
+        >>>     store_stderr = True,
+        >>>     store_stdlog = True,
+        >>>     use_shell    = False,
+        >>>     fizzle_bad_rc= True)
+        >>>
+        >>> fwaction = task.run_task({})
+        >>> print(fwaction)
+
+        and investigate the contents of 'std.err', 'std.out', 'std.log',
+        'simple_hist.py', 'calls.log' and 'vars.log' as well as what you see
+        as output on the terminal.
     """
 
     # required_params = []
@@ -320,7 +434,6 @@ class EnvTask(FiretaskBase):
             self._parse_global_init_block(fw_spec)
             self._parse_global_env_block(fw_spec)
 
-
     def run_task(self, fw_spec):
         """Run a sub-process. Modify environment if desired."""
 
@@ -329,9 +442,12 @@ class EnvTask(FiretaskBase):
         else:
             self._load_params(self)
 
+        # contexts to be entered before and left in reverse order after
+        # task execution
         context_managers = []
 
         threads = []
+
         # redirect stdout and stderr if desired (store them in db later)
         # create non-default streams to insert into db if desired
         out_streams = []
@@ -339,35 +455,52 @@ class EnvTask(FiretaskBase):
             outf = open(self.stdout_file, 'a', **ENCODING_PARAMS)
             out_streams.append(outf)
         if self.store_stdout:
-            self._stdout = io.TextIOWrapper(io.BytesIO(),**ENCODING_PARAMS)
-            out_streams.append(self._stdout)
-        if len(out_streams) > 0:
-            context_managers.append(TeeContext(sys.stdout,*out_streams))
-        # out_streams.append(sys.stdout)  # per default to sys.stdout
-        # threads.append(tee(sys.stdout, *out_streams))
+            stdout_stream = io.StringIO()  # io.TextIOWrapper(io.BytesIO(), **ENCODING_PARAMS)
+            out_streams.append(stdout_stream)
+        out_streams.append(sys.stdout)
+        stdout_pipe = TextIOPipeContext(name='StdOutPipe', **ENCODING_PARAMS)
+
+        # 1st context: stdout tee
+        context_managers.append(
+            TeeContext(stdout_pipe, *out_streams, name='StdOutTee'))
+        # 2nd context: stdout pipe
+        context_managers.append(stdout_pipe)
 
         err_streams = []
         if self.stderr_file:
             errf = open(self.stderr_file, 'a', **ENCODING_PARAMS)
             err_streams.append(errf)
         if self.store_stderr:
-            self._stderr = io.TextIOWrapper(io.BytesIO(),**ENCODING_PARAMS)
-            err_streams.append(self._stderr)
-        if len(err_streams) > 0:
-            context_managers.append(TeeContext(sys.stderr,*err_streams))
+            stderr_stream = io.StringIO()
+            err_streams.append(stderr_stream)
+        err_streams.append(sys.stderr)
+        stderr_pipe = TextIOPipeContext(name='StdErrPipe', **ENCODING_PARAMS)
 
-        # err_streams.append(sys.stderr)  # per default to sys.stderr
-        threads.append(tee(sys.stderr, *err_streams))
+        # 3rd context: stderr tee
+        context_managers.append(
+            TeeContext(stderr_pipe, *err_streams, name='StdErrTee'))
+        # 4th context stderr pipe
+        context_managers.append(stderr_pipe)
+
+        # always "tunnel" stdout and stderr through our buffers for
+        # arbitrary tee'ing and capturing
+        # 5th context: redirect sys.stdout into pipe
+        context_managers.append(redirect_stdout(stdout_pipe))
+        # 6th context: redirect sys.stderr into pipe
+        context_managers.append(redirect_stderr(stderr_pipe))
 
         # logging to dedicated log stream if desired
         if self.store_stdlog:
-            self._stdlog = io.TextIOWrapper(io.BytesIO(),**ENCODING_PARAMS)
-            logh = logging.StreamHandler(self._stdlog)
+            # stdlog_stream = io.TextIOWrapper(io.BytesIO(), **ENCODING_PARAMS)
+            stdlog_stream = io.StringIO()
+            logh = logging.StreamHandler(stdlog_stream)
+            # optional 7th context: logging to in-memory buffer context
             context_managers.append(LoggingContext(handler=logh))
 
         # logging to dedicated log file if desired
         if self.stdlog_file:
             logfh = logging.FileHandler(self.stdlog_file, mode='a', **ENCODING_PARAMS)
+            # optional 8th context: logging to file context
             context_managers.append(LoggingContext(handler=logfh))
 
         # write pseudo command history to file if desired
@@ -378,14 +511,15 @@ class EnvTask(FiretaskBase):
         else:
             py_hist_handler = logging.NullHandler()
         self._py_hist_logger = logging.getLogger(__name__ + '.py_hist_logger')
+        self._py_hist_logger.propagate = False
         for h in self._py_hist_logger.handlers:
             self._py_hist_logger.removeHandler(h)
         self._py_hist_logger.addHandler(py_hist_handler)
 
-
         # write tracer call logs to file if desired
         if self.call_log_file:
             self._call_log_stream = open(self.call_log_file, mode='a', **ENCODING_PARAMS)
+            # optional 9th context: trace calls to file
             context_managers.append(self._call_log_stream)
         else:
             self._call_log_stream = os.devnull
@@ -393,6 +527,7 @@ class EnvTask(FiretaskBase):
         # write tracer variable change logs to file if desired
         if self.vars_log_file:
             self._vars_log_stream = open(self.vars_log_file, mode='a', **ENCODING_PARAMS)
+            # optional 10th context: trace variable changes to file
             context_managers.append(self._vars_log_stream)
         else:
             self._vars_log_stream = os.devnull
@@ -400,16 +535,16 @@ class EnvTask(FiretaskBase):
         # log, stdout, stderr streams are logged to
         # files and database, depending on flags.
 
-        # TODO: redirect of stdout and stderr won't tee into file if desired
-        # Pull 'tee' functionality of CmdTask one level up here.
-
+        # 11th context: allow temporary os.environ modifications within block
         context_managers.append(TemporaryOSEnviron())
+        # 12th context: allow temporary sys.path modifications within block
         context_managers.append(TemporarySysPath())
 
         with ExitStack() as stack:
             # for a variable amount of contexts:
             for mgr in context_managers:
                 stack.enter_context(mgr)
+            # TODO: replace own logger attribute with getLogger in methods
             self.logger = logging.getLogger(__name__)
             ret = self._run_task_internal(fw_spec)
 
@@ -423,16 +558,19 @@ class EnvTask(FiretaskBase):
 
         output = {}
         if self.store_stdout:
-            self._stdout.seek(0)
-            output['stdout'] = self._stdout.read()
+            # stdout_stream.seek(0)
+            # output['stdout'] = stdout_stream.read()
+            output['stdout'] = stdout_stream.getvalue()
 
         if self.store_stderr:
-            self._stderr.seek(0)
-            output['stderr'] = self._stderr.read()
+            # stderr_stream.seek(0)
+            # output['stderr'] = stderr_stream.read()
+            output['stderr'] = stderr_stream.getvalue()
 
         if self.store_stdlog:
-            self._stdlog.seek(0)
-            output['stdlog'] = self._stdlog.read()
+            # stdlog_stream.seek(0)
+            # output['stdlog'] = stdlog_stream.read()
+            output['stdlog'] = stdlog_stream.getvalue()
 
         fw_action.stored_data.update(output)
 
