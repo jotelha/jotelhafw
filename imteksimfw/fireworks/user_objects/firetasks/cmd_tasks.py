@@ -132,8 +132,8 @@ class Tee(threading.Thread):
         # following line allows for this thread not to block when waiting
         # for data on a stream, but might also cause ending before the stream
         # is finished
-        instream = NonBlockingStreamReader(self.instream)
-        # instream = self.instream
+        # instream = NonBlockingStreamReader(self.instream)
+        instream = self.instream
         # finish reading in any case if there is still stuff coming through
         line = None
         while (not self._stopevent.isSet()) or (line is not None):
@@ -195,7 +195,6 @@ class TeeContext():
 class PipeRWPair(io.BufferedRWPair):
     """Wraps io.BufferedRWPair around binary os.pipe."""
     def __init__(self, *args, name=None, **kwargs):
-        # if name is not None:
         self.logger = logging.getLogger(__name__)
         self.instance_name = name
 
@@ -205,9 +204,9 @@ class PipeRWPair(io.BufferedRWPair):
                 "{:s} opened pipe with infile {:d} and outfile {:d}."
                     .format(self.instance_name, self._pipein, self._pipeout))
 
-        reader = io.FileIO(self._pipeout, mode='rb')
-        writer = io.FileIO(self._pipein, mode='wb')
-        super().__init__(reader, writer, *args, **kwargs)
+        self.pipe_reader = io.FileIO(self._pipeout, mode='rb')
+        self.pipe_writer = io.FileIO(self._pipein, mode='wb')
+        super().__init__(self.pipe_reader, self.pipe_writer, *args, **kwargs)
 
 
 class TextIOPipe(io.TextIOWrapper):
@@ -216,8 +215,8 @@ class TextIOPipe(io.TextIOWrapper):
         self.logger = logging.getLogger(__name__)
         self.instance_name = name
 
-        pipe = PipeRWPair(name=name)
-        super().__init__(pipe, *args, **kwargs)
+        self.pipe = PipeRWPair(name=name)
+        super().__init__(self.pipe, *args, **kwargs)
 
 
 class TextIOPipeContext(TextIOPipe):
@@ -492,13 +491,17 @@ class EnvTask(FiretaskBase):
             stdout_stream = io.StringIO()  # io.TextIOWrapper(io.BytesIO(), **ENCODING_PARAMS)
             out_streams.append(stdout_stream)
         out_streams.append(sys.stdout)
-        stdout_pipe = TextIOPipeContext(name='StdOutPipe', **ENCODING_PARAMS)
+        # stdout_pipe = TextIOPipeContext(name='StdOutPipe', **ENCODING_PARAMS)
+        stdout_pipeout, stdout_pipein = os.pipe()
 
         # 3rd context: stdout tee
         context_managers.append(
-            TeeContext(stdout_pipe, *out_streams, name='StdOutTee'))
+            TeeContext(
+              io.TextIOWrapper(io.FileIO(stdout_pipeout, mode='rb'), **ENCODING_PARAMS),
+              *out_streams, name='StdOutTee'))
+
         # 4th context: stdout pipe
-        context_managers.append(stdout_pipe)
+        # context_managers.append(stdout_pipe)
 
         err_streams = []
         if self.stderr_file:
@@ -508,20 +511,31 @@ class EnvTask(FiretaskBase):
             stderr_stream = io.StringIO()
             err_streams.append(stderr_stream)
         err_streams.append(sys.stderr)
-        stderr_pipe = TextIOPipeContext(name='StdErrPipe', **ENCODING_PARAMS)
+        # stderr_pipe = TextIOPipeContext(name='StdErrPipe', **ENCODING_PARAMS)
+        stderr_pipeout, stderr_pipein = os.pipe()
 
         # 5th context: stderr tee
         context_managers.append(
-            TeeContext(stderr_pipe, *err_streams, name='StdErrTee'))
+            TeeContext(
+                io.TextIOWrapper(io.FileIO(stderr_pipeout, mode='rb'), **ENCODING_PARAMS),
+                *err_streams, name='StdErrTee'))
+
+
         # 6th context stderr pipe
-        context_managers.append(stderr_pipe)
+        # context_managers.append(stderr_pipe)
 
         # always "tunnel" stdout and stderr through our buffers for
         # arbitrary tee'ing and capturing
         # 7th context: redirect sys.stdout into pipe
-        context_managers.append(redirect_stdout(stdout_pipe))
+        # self.pipe_writer = io.FileIO(self._pipein, mode='wb')
+        context_managers.append(redirect_stdout(
+            io.TextIOWrapper(io.FileIO(stdout_pipein, mode='wb'), **ENCODING_PARAMS)))
+        # context_managers.append(redirect_stdout(stdout_pipe))
         # 8th context: redirect sys.stderr into pipe
-        context_managers.append(redirect_stderr(stderr_pipe))
+        # context_managers.append(redirect_stderr(stderr_pipe))
+        context_managers.append(redirect_stderr(
+            io.TextIOWrapper(io.FileIO(stderr_pipein, mode='wb'), **ENCODING_PARAMS)))
+
 
         # write pseudo command history to file if desired
         if self.py_hist_file:
