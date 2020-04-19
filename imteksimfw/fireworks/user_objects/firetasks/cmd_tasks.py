@@ -122,7 +122,7 @@ class Tee(threading.Thread):
         """ constructor, setting initial variables """
         self.logger = logging.getLogger(__name__)
         self._stopevent = threading.Event()
-        self._sleepperiod = 1.0e-3  # s
+        # self._sleepperiod = 1.0e-3  # s
         self.instream = instream
         self.outstreams = outstreams
         threading.Thread.__init__(self, **kwargs)
@@ -132,18 +132,35 @@ class Tee(threading.Thread):
         # following line allows for this thread not to block when waiting
         # for data on a stream, but might also cause ending before the stream
         # is finished
-        # instream = NonBlockingStreamReader(self.instream)
-        instream = self.instream
-        while not self._stopevent.isSet():
+        instream = NonBlockingStreamReader(self.instream)
+        # instream = self.instream
+        # finish reading in any case if there is still stuff coming through
+        line = None
+        while (not self._stopevent.isSet()) or (line is not None):
+            if self._stopevent.isSet():
+                # thread is about to stop, try to get remaining contents in stream
+                # try to flush instream (if it's both readable AND writable)
+                self.logger.debug(
+                    "{} received stop signal, reading remaining stream data."
+                        .format(self.name))
+
+                try:
+                    instream.flush()
+                except Exception:
+                    pass
+
             line = instream.readline()
             if line is not None:
                 if hasattr(self, 'name') and line is not None and len(line) > 0:
                     self.logger.debug("{} captured '{}'".format(self.name, line))
                 for f in self.outstreams:
                     f.write(line)
-            self._stopevent.wait(self._sleepperiod)
+            # self._stopevent.wait(self._sleepperiod)
+
         for f in self.outstreams:
             f.flush()
+        if hasattr(self, 'name'):
+            self.logger.debug("{} received stop signal and finished.".format(self.name))
 
     def join(self, timeout=None):
         """ Stop the thread. """
@@ -448,6 +465,23 @@ class EnvTask(FiretaskBase):
 
         threads = []
 
+        # logging to dedicated log stream if desired
+        if self.store_stdlog:
+            # stdlog_stream = io.TextIOWrapper(io.BytesIO(), **ENCODING_PARAMS)
+            stdlog_stream = io.StringIO()
+            logh = logging.StreamHandler(stdlog_stream)
+            # optional 1st context: logging to in-memory buffer context
+            context_managers.append(
+                LoggingContext(handler=logh, level=self.loglevel, close=False))
+
+        # logging to dedicated log file if desired
+        if self.stdlog_file:
+            logfh = logging.FileHandler(self.stdlog_file, mode='a', **ENCODING_PARAMS)
+            # optional 2nd context: logging to file context
+            context_managers.append(
+                LoggingContext(handler=logfh, level=self.loglevel, close=True))
+
+
         # redirect stdout and stderr if desired (store them in db later)
         # create non-default streams to insert into db if desired
         out_streams = []
@@ -460,10 +494,10 @@ class EnvTask(FiretaskBase):
         out_streams.append(sys.stdout)
         stdout_pipe = TextIOPipeContext(name='StdOutPipe', **ENCODING_PARAMS)
 
-        # 1st context: stdout tee
+        # 3rd context: stdout tee
         context_managers.append(
             TeeContext(stdout_pipe, *out_streams, name='StdOutTee'))
-        # 2nd context: stdout pipe
+        # 4th context: stdout pipe
         context_managers.append(stdout_pipe)
 
         err_streams = []
@@ -476,32 +510,18 @@ class EnvTask(FiretaskBase):
         err_streams.append(sys.stderr)
         stderr_pipe = TextIOPipeContext(name='StdErrPipe', **ENCODING_PARAMS)
 
-        # 3rd context: stderr tee
+        # 5th context: stderr tee
         context_managers.append(
             TeeContext(stderr_pipe, *err_streams, name='StdErrTee'))
-        # 4th context stderr pipe
+        # 6th context stderr pipe
         context_managers.append(stderr_pipe)
 
         # always "tunnel" stdout and stderr through our buffers for
         # arbitrary tee'ing and capturing
-        # 5th context: redirect sys.stdout into pipe
+        # 7th context: redirect sys.stdout into pipe
         context_managers.append(redirect_stdout(stdout_pipe))
-        # 6th context: redirect sys.stderr into pipe
+        # 8th context: redirect sys.stderr into pipe
         context_managers.append(redirect_stderr(stderr_pipe))
-
-        # logging to dedicated log stream if desired
-        if self.store_stdlog:
-            # stdlog_stream = io.TextIOWrapper(io.BytesIO(), **ENCODING_PARAMS)
-            stdlog_stream = io.StringIO()
-            logh = logging.StreamHandler(stdlog_stream)
-            # optional 7th context: logging to in-memory buffer context
-            context_managers.append(LoggingContext(handler=logh))
-
-        # logging to dedicated log file if desired
-        if self.stdlog_file:
-            logfh = logging.FileHandler(self.stdlog_file, mode='a', **ENCODING_PARAMS)
-            # optional 8th context: logging to file context
-            context_managers.append(LoggingContext(handler=logfh))
 
         # write pseudo command history to file if desired
         if self.py_hist_file:
@@ -512,6 +532,7 @@ class EnvTask(FiretaskBase):
             py_hist_handler = logging.NullHandler()
         self._py_hist_logger = logging.getLogger(__name__ + '.py_hist_logger')
         self._py_hist_logger.propagate = False
+        self._py_hist_logger.setLevel(logging.DEBUG)
         for h in self._py_hist_logger.handlers:
             self._py_hist_logger.removeHandler(h)
         self._py_hist_logger.addHandler(py_hist_handler)
@@ -558,16 +579,19 @@ class EnvTask(FiretaskBase):
 
         output = {}
         if self.store_stdout:
+            stdout_stream.flush()
             # stdout_stream.seek(0)
             # output['stdout'] = stdout_stream.read()
             output['stdout'] = stdout_stream.getvalue()
 
         if self.store_stderr:
+            stderr_stream.flush()
             # stderr_stream.seek(0)
             # output['stderr'] = stderr_stream.read()
             output['stderr'] = stderr_stream.getvalue()
 
         if self.store_stdlog:
+            stdlog_stream.flush()
             # stdlog_stream.seek(0)
             # output['stdlog'] = stdlog_stream.read()
             output['stdlog'] = stdlog_stream.getvalue()
