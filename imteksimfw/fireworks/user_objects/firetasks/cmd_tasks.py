@@ -136,14 +136,14 @@ class Tee(threading.Thread):
         instream = self.instream
         # finish reading in any case if there is still stuff coming through
         line = None
-        while (not self._stopevent.isSet()) or (line is not None):
+        # line is '' if stream ended
+        while (not self._stopevent.isSet()) or (line != ''):
             if self._stopevent.isSet():
                 # thread is about to stop, try to get remaining contents in stream
                 # try to flush instream (if it's both readable AND writable)
                 self.logger.debug(
                     "{} received stop signal, reading remaining stream data."
                         .format(self.name))
-
                 try:
                     instream.flush()
                 except Exception:
@@ -254,7 +254,6 @@ class LoggingContext():
         if self.handler and self.close:
             self.handler.close()
         # implicit return of None => don't swallow exceptions
-
 
 # TODO: there seems to be an issue with unclean temporary environment
 # at CmdTask only resolvable after rlaunch restart:
@@ -458,127 +457,130 @@ class EnvTask(FiretaskBase):
         else:
             self._load_params(self)
 
-        # contexts to be entered before and left in reverse order after
-        # task execution
-        context_managers = []
-
         threads = []
 
-        # logging to dedicated log stream if desired
-        if self.store_stdlog:
-            # stdlog_stream = io.TextIOWrapper(io.BytesIO(), **ENCODING_PARAMS)
-            stdlog_stream = io.StringIO()
-            logh = logging.StreamHandler(stdlog_stream)
-            # optional 1st context: logging to in-memory buffer context
-            context_managers.append(
-                LoggingContext(handler=logh, level=self.loglevel, close=False))
-
-        # logging to dedicated log file if desired
-        if self.stdlog_file:
-            logfh = logging.FileHandler(self.stdlog_file, mode='a', **ENCODING_PARAMS)
-            # optional 2nd context: logging to file context
-            context_managers.append(
-                LoggingContext(handler=logfh, level=self.loglevel, close=True))
-
-
-        # redirect stdout and stderr if desired (store them in db later)
-        # create non-default streams to insert into db if desired
-        out_streams = []
-        if self.stdout_file:
-            outf = open(self.stdout_file, 'a', **ENCODING_PARAMS)
-            out_streams.append(outf)
-        if self.store_stdout:
-            stdout_stream = io.StringIO()  # io.TextIOWrapper(io.BytesIO(), **ENCODING_PARAMS)
-            out_streams.append(stdout_stream)
-        out_streams.append(sys.stdout)
-        # stdout_pipe = TextIOPipeContext(name='StdOutPipe', **ENCODING_PARAMS)
-        stdout_pipeout, stdout_pipein = os.pipe()
-
-        # 3rd context: stdout tee
-        context_managers.append(
-            TeeContext(
-              io.TextIOWrapper(io.FileIO(stdout_pipeout, mode='rb'), **ENCODING_PARAMS),
-              *out_streams, name='StdOutTee'))
-
-        # 4th context: stdout pipe
-        # context_managers.append(stdout_pipe)
-
-        err_streams = []
-        if self.stderr_file:
-            errf = open(self.stderr_file, 'a', **ENCODING_PARAMS)
-            err_streams.append(errf)
-        if self.store_stderr:
-            stderr_stream = io.StringIO()
-            err_streams.append(stderr_stream)
-        err_streams.append(sys.stderr)
-        # stderr_pipe = TextIOPipeContext(name='StdErrPipe', **ENCODING_PARAMS)
-        stderr_pipeout, stderr_pipein = os.pipe()
-
-        # 5th context: stderr tee
-        context_managers.append(
-            TeeContext(
-                io.TextIOWrapper(io.FileIO(stderr_pipeout, mode='rb'), **ENCODING_PARAMS),
-                *err_streams, name='StdErrTee'))
-
-
-        # 6th context stderr pipe
-        # context_managers.append(stderr_pipe)
-
-        # always "tunnel" stdout and stderr through our buffers for
-        # arbitrary tee'ing and capturing
-        # 7th context: redirect sys.stdout into pipe
-        # self.pipe_writer = io.FileIO(self._pipein, mode='wb')
-        context_managers.append(redirect_stdout(
-            io.TextIOWrapper(io.FileIO(stdout_pipein, mode='wb'), **ENCODING_PARAMS)))
-        # context_managers.append(redirect_stdout(stdout_pipe))
-        # 8th context: redirect sys.stderr into pipe
-        # context_managers.append(redirect_stderr(stderr_pipe))
-        context_managers.append(redirect_stderr(
-            io.TextIOWrapper(io.FileIO(stderr_pipein, mode='wb'), **ENCODING_PARAMS)))
-
-
-        # write pseudo command history to file if desired
-        if self.py_hist_file:
-            py_hist_handler = logging.FileHandler(self.py_hist_file, mode='a', **ENCODING_PARAMS)
-            py_hist_formatter = logging.Formatter('%(message)s')
-            py_hist_handler.setFormatter(py_hist_formatter)
-        else:
-            py_hist_handler = logging.NullHandler()
-        self._py_hist_logger = logging.getLogger(__name__ + '.py_hist_logger')
-        self._py_hist_logger.propagate = False
-        self._py_hist_logger.setLevel(logging.DEBUG)
-        for h in self._py_hist_logger.handlers:
-            self._py_hist_logger.removeHandler(h)
-        self._py_hist_logger.addHandler(py_hist_handler)
-
-        # write tracer call logs to file if desired
-        if self.call_log_file:
-            self._call_log_stream = open(self.call_log_file, mode='a', **ENCODING_PARAMS)
-            # optional 9th context: trace calls to file
-            context_managers.append(self._call_log_stream)
-        else:
-            self._call_log_stream = os.devnull
-
-        # write tracer variable change logs to file if desired
-        if self.vars_log_file:
-            self._vars_log_stream = open(self.vars_log_file, mode='a', **ENCODING_PARAMS)
-            # optional 10th context: trace variable changes to file
-            context_managers.append(self._vars_log_stream)
-        else:
-            self._vars_log_stream = os.devnull
-
-        # log, stdout, stderr streams are logged to
-        # files and database, depending on flags.
-
-        # 11th context: allow temporary os.environ modifications within block
-        context_managers.append(TemporaryOSEnviron())
-        # 12th context: allow temporary sys.path modifications within block
-        context_managers.append(TemporarySysPath())
-
         with ExitStack() as stack:
+            # contexts to be entered before and left in reverse order after
+            # task execution
+
+            # logging to dedicated log stream if desired
+            if self.store_stdlog:
+                # stdlog_stream = io.TextIOWrapper(io.BytesIO(), **ENCODING_PARAMS)
+                stdlog_stream = io.StringIO()
+                logh = logging.StreamHandler(stdlog_stream)
+                # optional 1st context: logging to in-memory buffer context
+                stack.enter_context(
+                    LoggingContext(handler=logh, level=self.loglevel, close=False))
+
+            # logging to dedicated log file if desired
+            if self.stdlog_file:
+                logfh = logging.FileHandler(self.stdlog_file, mode='a', **ENCODING_PARAMS)
+                # optional 2nd context: logging to file context
+                stack.enter_context(
+                    LoggingContext(handler=logfh, level=self.loglevel, close=True))
+
+
+            # redirect stdout and stderr if desired (store them in db later)
+            # create non-default streams to insert into db if desired
+            out_streams = []
+            if self.stdout_file:
+                outf = open(self.stdout_file, 'a', **ENCODING_PARAMS)
+                out_streams.append(outf)
+            if self.store_stdout:
+                stdout_stream = io.StringIO()  # io.TextIOWrapper(io.BytesIO(), **ENCODING_PARAMS)
+                out_streams.append(stdout_stream)
+            out_streams.append(sys.stdout)
+            # stdout_pipe = TextIOPipeContext(name='StdOutPipe', **ENCODING_PARAMS)
+            stdout_pipeout, stdout_pipein = os.pipe()
+
+            # 3rd context: stdout tee
+            stdout_reader = stack.enter_context(
+                io.TextIOWrapper(io.FileIO(stdout_pipeout, mode='rb'), **ENCODING_PARAMS))
+
+            stack.enter_context(
+                TeeContext(stdout_reader, *out_streams, name='StdOutTee'))
+
+            # 4th context: stdout pipe
+            # stack.enter_context(stdout_pipe)
+
+            err_streams = []
+            if self.stderr_file:
+                errf = open(self.stderr_file, 'a', **ENCODING_PARAMS)
+                err_streams.append(errf)
+            if self.store_stderr:
+                stderr_stream = io.StringIO()
+                err_streams.append(stderr_stream)
+            err_streams.append(sys.stderr)
+            # stderr_pipe = TextIOPipeContext(name='StdErrPipe', **ENCODING_PARAMS)
+            stderr_pipeout, stderr_pipein = os.pipe()
+
+            # 5th context: stderr tee
+            stderr_reader = stack.enter_context(
+                io.TextIOWrapper(io.FileIO(stderr_pipeout, mode='rb'), **ENCODING_PARAMS))
+
+            stack.enter_context(
+                TeeContext(stderr_reader, *err_streams, name='StdErrTee'))
+
+            # 6th context stderr pipe
+            # stack.enter_context(stderr_pipe)
+
+            # always "tunnel" stdout and stderr through our buffers for
+            # arbitrary tee'ing and capturing
+            # 7th context: redirect sys.stdout into pipe
+            # self.pipe_writer = io.FileIO(self._pipein, mode='wb')
+            stdout_writer = stack.enter_context(
+                io.TextIOWrapper(io.FileIO(stdout_pipein, mode='wb'), **ENCODING_PARAMS))
+
+            stack.enter_context(redirect_stdout(stdout_writer))
+            # stack.enter_context(redirect_stdout(stdout_pipe))
+            # 8th context: redirect sys.stderr into pipe
+            # stack.enter_context(redirect_stderr(stderr_pipe))
+            stderr_writer = stack.enter_context(
+                io.TextIOWrapper(io.FileIO(stderr_pipein, mode='wb'), **ENCODING_PARAMS))
+
+            stack.enter_context(redirect_stderr(stderr_writer))
+
+            # write pseudo command history to file if desired
+            if self.py_hist_file:
+                py_hist_handler = logging.FileHandler(self.py_hist_file, mode='a', **ENCODING_PARAMS)
+                py_hist_formatter = logging.Formatter('%(message)s')
+                py_hist_handler.setFormatter(py_hist_formatter)
+            else:
+                py_hist_handler = logging.NullHandler()
+            self._py_hist_logger = logging.getLogger(__name__ + '.py_hist_logger')
+            self._py_hist_logger.propagate = False
+            self._py_hist_logger.setLevel(logging.DEBUG)
+            for h in self._py_hist_logger.handlers:
+                self._py_hist_logger.removeHandler(h)
+            self._py_hist_logger.addHandler(py_hist_handler)
+
+            # write tracer call logs to file if desired
+            if self.call_log_file:
+                self._call_log_stream = open(self.call_log_file, mode='a', **ENCODING_PARAMS)
+                # optional 9th context: trace calls to file
+                stack.enter_context(self._call_log_stream)
+            else:
+                self._call_log_stream = os.devnull
+
+            # write tracer variable change logs to file if desired
+            if self.vars_log_file:
+                self._vars_log_stream = open(self.vars_log_file, mode='a', **ENCODING_PARAMS)
+                # optional 10th context: trace variable changes to file
+                stack.enter_context(self._vars_log_stream)
+            else:
+                self._vars_log_stream = os.devnull
+
+            # log, stdout, stderr streams are logged to
+            # files and database, depending on flags.
+
+            # 11th context: allow temporary os.environ modifications within block
+            stack.enter_context(TemporaryOSEnviron())
+            # 12th context: allow temporary sys.path modifications within block
+            stack.enter_context(TemporarySysPath())
+
             # for a variable amount of contexts:
-            for mgr in context_managers:
-                stack.enter_context(mgr)
+            # for mgr in context_managers:
+            #    stack.enter_context(mgr)
             # TODO: replace own logger attribute with getLogger in methods
             self.logger = logging.getLogger(__name__)
             ret = self._run_task_internal(fw_spec)
