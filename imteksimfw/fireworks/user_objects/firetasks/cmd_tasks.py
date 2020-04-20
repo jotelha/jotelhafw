@@ -27,6 +27,7 @@
 import functools
 import logging
 import io
+import multiprocessing
 import os
 import pickle
 import subprocess
@@ -451,12 +452,20 @@ class EnvTask(FiretaskBase):
 
     def run_task(self, fw_spec):
         """Run a sub-process. Modify environment if desired."""
-
         if self.get('use_global_spec'):
             self._load_params(fw_spec)
         else:
             self._load_params(self)
 
+        # spawn child process to assure my environment stays untouched
+        q = multiprocessing.Queue()
+        p = multiprocessing.Process(target=self._run_as_child_process, args=(q, fw_spec,))
+        p.start()
+        fw_action = q.get()
+        p.join()
+        return fw_action
+
+    def _run_as_child_process(self, q, fw_spec):
         threads = []
 
         with ExitStack() as stack:
@@ -574,9 +583,9 @@ class EnvTask(FiretaskBase):
             # files and database, depending on flags.
 
             # 11th context: allow temporary os.environ modifications within block
-            stack.enter_context(TemporaryOSEnviron())
+            # stack.enter_context(TemporaryOSEnviron())
             # 12th context: allow temporary sys.path modifications within block
-            stack.enter_context(TemporarySysPath())
+            # stack.enter_context(TemporarySysPath())
 
             # for a variable amount of contexts:
             # for mgr in context_managers:
@@ -618,7 +627,8 @@ class EnvTask(FiretaskBase):
         if hasattr(fw_action, 'propagate') and self.propagate is not None:
             fw_action.propagate = self.propagate
 
-        return fw_action
+        # return fw_action
+        q.put(fw_action)
 
     # TODO: get rid of those _load_params functions (relic from ScriptTask)
     def _load_params(self, d):
