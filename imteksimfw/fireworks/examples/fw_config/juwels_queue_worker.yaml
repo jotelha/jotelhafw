@@ -167,13 +167,18 @@ env:
         - 'module("use","/gpfs/software/juwels/otherstages")'
         - 'module("load","Stages/2018b")'
         - 'module("load","lammps/16Mar18-intel-2019-gcc-7.3-impi-2018-colvars-18Feb19")'
+        - 'module("list")'
         prefix: 'srun'
 
       convert:
-        init: 'module("load","GCC","ImageMagick")'
+        init:
+        - 'module("load","GCC","ImageMagick")'
+        - 'module("list")'
 
       exchange_substrate.py:
-        init: 'module("load","mdtools","ovitos")'
+        init:
+        - 'module("load","mdtools","ovitos")'
+        - 'module("list")'
 
       extend_ndx_by_per_atom_groups:
         init:
@@ -182,13 +187,19 @@ env:
         - 'module("load","imteksimcs/devel-Python-3.6.8")'
 
       extract_bb.py:
-        init: 'module("load","mdtools/01Jun19-python-2.7")'
+        init:
+        - 'module("load","mdtools/01Jun19-python-2.7")'
+        - 'module("list")'
 
       extract_indenter_nonindenter_forces_from_netcdf.py:
-        init: 'module("load","mdtools")'
+        init:
+        - 'module("load","mdtools")'
+        - 'module("list")'
 
       extract_property.py:
-        init: 'module("load","mdtools","ovitos")'
+        init:
+        - 'module("load","mdtools","ovitos")'
+        - 'module("list")'
 
       extract_thermo.sh:
         init: 'module("load","mdtools")'
@@ -197,6 +208,7 @@ env:
         init:
         - 'module("load","Stages/2019a","Intel/2019.3.199-GCC-8.3.0","IntelMPI/2019.3.199")'
         - 'module("load","GROMACS/2019.3","GROMACS-Top/2019.3")'
+        - 'module("list")'
         prefix: srun
         substitute: gmx_mpi
 
@@ -205,63 +217,100 @@ env:
         - 'module("load","Stages/2019a","Intel/2019.3.199-GCC-8.3.0","IntelMPI/2019.3.199")'
         - 'module("load","GromacsWrapper/0.8.0-Python-3.6.8","GROMACS-Top/2019.3")'
         - 'module("load","imteksimcs/devel-local-Python-3.6.8")'
+        - 'module("list")'
         env:
            FI_PROVIDER: tcp
-      
+
       join_thermo.py:
-        init: 'module("load","mdtools")'
+        init:
+        - 'module("load","mdtools")'
+        - 'module("list")'
 
       merge.py:
-        init: 'module("load","mdtools/01Jun19-python-2.7")'
+        init:
+        - 'module("load","mdtools/01Jun19-python-2.7")'
+        - 'module("list")'
 
       ncfilter.py:
-        init: 'module("load","mdtools")'
+        init:
+        - 'module("load","mdtools")'
+        - 'module("list")'
         prefix: 'srun'
 
       ncjoin.py:
-        init: 'module("load","mdtools")'
+        init:
+        - 'module("load","mdtools")'
+        - 'module("list")'
 
       ncap2:
-        init: 'module("load","Intel","IntelMPI","NCO")'
+        init:
+        - 'module("load","Intel","IntelMPI","NCO")'
+        - 'module("list")'
 
       ncks:
-        init: 'module("load","Intel","IntelMPI","NCO")'
+        init:
+        - 'module("load","Intel","IntelMPI","NCO")'
+        - 'module("list")'
 
       ncrename:
-        init: 'module("load","Intel","IntelMPI","NCO")'
+        init:
+        - 'module("load","Intel","IntelMPI","NCO")'
+        - 'module("list")'
 
       ncpdq:
-        init: 'module("load","Intel","IntelMPI","NCO")'
+        init:
+        - 'module("load","Intel","IntelMPI","NCO")'
+        - 'module("list")'
 
       netcdf2data.py:
-        init: 'module("load","mdtools","ovitos")'
+        init:
+        - 'module("load","mdtools","ovitos")'
+        - 'module("list")'
 
       packmol:
-        init: 'module("load","Stages/2019a","Intel/2019.3.199-GCC-8.3.0","packmol/20.010")'
+        init:
+        - 'module("load","Stages/2019a","Intel/2019.3.199-GCC-8.3.0","packmol/20.010")'
+        - 'module("list")'
 
       pdb_chain:
-        init: 'module("load","Stages/2019a","GCC/8.3.0","pdb-tools/2.0.1-Python-3.6.8")'
+        init:
+        - 'module("load","Stages/2019a","GCC/8.3.0","pdb-tools/2.0.1-Python-3.6.8")'
+        - 'module("list")'
 
       pdb_reres:
-        init: 'module("load","Stages/2019a","GCC/8.3.0","pdb-tools/2.0.1-Python-3.6.8")'
+        init:
+        - 'module("load","Stages/2019a","GCC/8.3.0","pdb-tools/2.0.1-Python-3.6.8")'
+        - 'module("list")'
 
       pdb_tidy:
-        init: 'module("load","Stages/2019a","GCC/8.3.0","pdb-tools/2.0.1-Python-3.6.8")'
+        init:
+        - 'module("load","Stages/2019a","GCC/8.3.0","pdb-tools/2.0.1-Python-3.6.8")'
+        - 'module("list")'
 
       pizza.py:
-        init: 'module("load","mdtools/01Jun19-python-2.7")'
+        init:
+        - 'module("load","mdtools/01Jun19-python-2.7")'
+        - 'module("list")'
 
       strip_comments.py:
-        init: 'module("load","mdtools/01Jun19-python-2.7")'
+        init:
+        - 'module("load","mdtools/01Jun19-python-2.7")'
+        - 'module("list")'
 
       to_hybrid.py:
-        init: 'module("load","mdtools")'
+        init:
+        - 'module("load","mdtools")'
+        - 'module("list")'
 
       vmd:
-        init: 'module("load","jlhvmd")'
+        init:
+        - 'module("load","jlhvmd")'
+        - 'module("list")'
 
       smbsync.py:
-        init: 'module("load","mdtools")'
+        init:
+        - 'module("load","mdtools")'
+        - 'module("list")'
 
   imteksimpy:
     init:
@@ -273,4 +322,6 @@ env:
     - 'module("load","ASE/3.17.0-Python-3.6.8")'
     - 'module("load","imteksimcs/devel-local-Python-3.6.8")'
     - 'module("load","imteksimpyenv/devel-Python-3.6.8")'
+    - 'module("list")'
     - 'for d in list(set(os.environ["PYTHONPATH"].split(":")) - set(sys.path)): site.addsitedir(d)'
+    # this last line is nasty
