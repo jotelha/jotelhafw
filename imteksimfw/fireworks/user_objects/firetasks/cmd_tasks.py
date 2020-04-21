@@ -32,6 +32,7 @@ import os
 import pickle
 import subprocess
 import sys
+import traceback
 import threading
 
 from contextlib import ExitStack, redirect_stdout, redirect_stderr
@@ -58,6 +59,8 @@ __date__ = 'Mar 18, 2020'
 
 
 # TODO: remove too verbose logging for pipes and streams
+
+# TODO: own logging format on this level
 
 # nice post on reading and writing streams:
 # https://stackoverflow.com/questions/33395004/python-streamio-reading-and-writing-from-the-same-stream
@@ -322,6 +325,33 @@ def get_nested_dict_value(d, key):
 
     return val
 
+# https://stackoverflow.com/questions/19924104/python-multiprocessing-handling-child-errors-in-parent
+class Process(multiprocessing.Process):
+    """
+    Class which returns child Exceptions to Parent.
+    https://stackoverflow.com/a/33599967/4992248
+    """
+
+    def __init__(self, *args, **kwargs):
+        multiprocessing.Process.__init__(self, *args, **kwargs)
+        self._parent_conn, self._child_conn = multiprocessing.Pipe()
+        self._exception = None
+
+    def run(self):
+        try:
+            multiprocessing.Process.run(self)
+            self._child_conn.send(None)
+        except Exception as e:
+            tb = traceback.format_exc()
+            self._child_conn.send((e, tb))
+            raise e  # You can still rise this exception if you need to
+
+    @property
+    def exception(self):
+        if self._parent_conn.poll():
+            self._exception = self._parent_conn.recv()
+        return self._exception
+
 
 class EnvTask(FiretaskBase):
     """Abstract base class for tasks that modify the environmen.
@@ -459,10 +489,29 @@ class EnvTask(FiretaskBase):
 
         # spawn child process to assure my environment stays untouched
         q = multiprocessing.Queue()
-        p = multiprocessing.Process(target=self._run_as_child_process, args=(q, fw_spec,))
+        p = Process(target=self._run_as_child_process, args=(q, fw_spec,))
         p.start()
+
+        # wait for child to queue fw_action object and
+        # check whether child raises exception
+        while q.empty():
+            # if child raises exception, then it has terminated
+            # before queueing any fw_action object
+            if p.exception:
+                error, p_traceback = p.exception
+                raise ChildProcessError(p_traceback)
+        # this loop will deadlock for any child that never raises
+        # an exception and does not queue anythong
+
+        # child has finished without exception
+        # child must always return fw_action
+        # queue only used for one transfer of
+        # return fw_action, should thus never deadlock.
         fw_action = q.get()
+        # if we reach this line without the child
+        # queueing anything, then process will deadlock.
         p.join()
+
         return fw_action
 
     def _run_as_child_process(self, q, fw_spec):
