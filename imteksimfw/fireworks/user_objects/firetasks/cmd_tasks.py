@@ -705,7 +705,9 @@ class CmdTask(EnvTask, ScriptTask):
 
     Optional params:
         - opt ([obj]): list of strings (or int, float, ...) to pass as
-            options / arguments tp 'cmd'
+            options / arguments tp 'cmd'. List may contain dicts of
+            pattern {'key': 'some->nested->fw_spec->key'} or
+            {'eval': 'python-expression'} in order to dynamically modify opt.
         - env (str): allows to specify an environment possibly defined in the
             worker file. If so, additional environment-related iintialization
             and expansion of command aliases are carried out (see below).
@@ -986,7 +988,19 @@ class CmdTask(EnvTask, ScriptTask):
             self._args = [self.cmd]
 
         if self.opt:  # extend by command line options if available
-            self._args.extend(self.opt)
+            # evaluate raplacement rules, i.e. fw_spec key or expression evaluation
+            for arg in self.opt:
+                if isinstance(arg, dict):
+                    # only one rule per opt item allowed
+                    # insert value from (nested) key - value pair in fw_spec
+                    if 'key' in arg:
+                        arg = get_nested_dict_value(fw_spec, arg['key'])
+                    # evaluate expression and insert result
+                    elif 'eval' in arg:
+                        arg = eval(arg['eval'])
+                # user should only use strings as args
+                # to be sure, always append string representation
+                self._args.append(str(arg))
 
         self.logger.info("Built args '{}'.".format(self._args))
         self.logger.info("Built command '{:s}'.".format(
@@ -1145,10 +1159,9 @@ class CmdTask(EnvTask, ScriptTask):
 
         # command line options
         opt = d.get('opt', None)
-        if isinstance(opt, str):
-            opt = [opt]
-        if opt:
-            assert isinstance(opt, list), "opt must be str or list of str-like!"
+        # opt may be mixed list of [str,dict]
+        if (opt is not None) and (not isinstance(opt, list)):
+            opt = [opt]  # no check on str or dict elements!
 
         self.opt = opt
 
