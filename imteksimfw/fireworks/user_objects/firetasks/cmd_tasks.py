@@ -155,8 +155,8 @@ class Tee(threading.Thread):
 
             line = instream.readline()
             if line is not None:
-                if hasattr(self, 'name') and line is not None and len(line) > 0:
-                    self.logger.debug("{} captured '{}'".format(self.name, line))
+                # if hasattr(self, 'name') and line is not None and len(line) > 0:
+                #    self.logger.debug("{} captured '{}'".format(self.name, line))
                 for f in self.outstreams:
                     f.write(line)
             # self._stopevent.wait(self._sleepperiod)
