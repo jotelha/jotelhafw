@@ -204,6 +204,11 @@ env:
       extract_thermo.sh:
         init: 'module("load","mdtools")'
 
+      ffmpeg:
+        init:
+        - 'module("load","GCCcore/.8.3.0","FFmpeg/.4.1.3")'
+        - 'module("list")'
+
       gmx:
         init:
         - 'module("load","Stages/2019a","Intel/2019.3.199-GCC-8.3.0","IntelMPI/2019.3.199")'
@@ -269,27 +274,32 @@ env:
 
       packmol:
         init:
-        - 'module("load","Stages/2019a","Intel/2019.3.199-GCC-8.3.0","packmol/20.010")'
+        - 'module("load","Intel/2019.3.199-GCC-8.3.0","packmol/20.010")'
         - 'module("list")'
 
       pdb_chain:
         init:
-        - 'module("load","Stages/2019a","GCC/8.3.0","pdb-tools/2.0.1-Python-3.6.8")'
+        - 'module("load","GCC/8.3.0","pdb-tools/2.0.1-Python-3.6.8")'
         - 'module("list")'
 
       pdb_reres:
         init:
-        - 'module("load","Stages/2019a","GCC/8.3.0","pdb-tools/2.0.1-Python-3.6.8")'
+        - 'module("load","GCC/8.3.0","pdb-tools/2.0.1-Python-3.6.8")'
         - 'module("list")'
 
       pdb_tidy:
         init:
-        - 'module("load","Stages/2019a","GCC/8.3.0","pdb-tools/2.0.1-Python-3.6.8")'
+        - 'module("load","GCC/8.3.0","pdb-tools/2.0.1-Python-3.6.8")'
         - 'module("list")'
 
       pizza.py:
         init:
         - 'module("load","mdtools/01Jun19-python-2.7")'
+        - 'module("list")'
+
+      pymol:
+        init:
+        - 'module("load","GCCcore/.8.3.0","PyMOL/2.3.0-Python-3.6.8")'
         - 'module("list")'
 
       strip_comments.py:
