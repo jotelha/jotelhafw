@@ -22,9 +22,9 @@ from fireworks.core.firework import FiretaskBase, FWAction
 from fireworks.utilities.dict_mods import get_nested_dict_value
 
 
-__author__ = 'Johannes Hoermann'
-__copyright__ = 'Copyright 2020, IMTEK Simulation, Univeristy of Freiburg'
-__email__ = 'johannes.hoermann@imtek.uni-freiburg.de'
+__author__ = 'Johannes Laurin Hoermann'
+__copyright__ = 'Copyright 2020, IMTEK Simulation, University of Freiburg'
+__email__ = 'johannes.hoermann@imtek.uni-freiburg.de, johannes.laurin@gmail.com'
 __date__ = 'Apr 27, 2020'
 
 
@@ -75,7 +75,7 @@ def dict_merge(dct, merge_dct, add_keys=True):
     return dct
 
 
-# TODO: bug report, there seems to be an issue with
+# TODO: bug report, there seems to be an issue with, then remove here
 # https://github.com/jic-dtool/dtoolcore/blob/6aff99531d1192f86512f662caf22a6ecd2198a5/dtoolcore/__init__.py#L111
 # not respecting custon config paths
 def _generate_uri(admin_metadata, base_uri, config_path=None):
