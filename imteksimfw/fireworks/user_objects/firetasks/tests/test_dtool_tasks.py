@@ -1,8 +1,25 @@
 # coding: utf-8
+"""Test dtool integration.
 
-from __future__ import unicode_literals
+To see verbose logging during testing, run something like
 
-__author__ = 'Johannes Hoermann'
+    import logging
+    import unittest
+    from imteksimfw.fireworks.user_objects.firetasks.tests.test_dtool_tasks import DtoolTasksTest
+    logging.basicConfig(level=logging.DEBUG)
+    suite = unittest.TestSuite()
+    suite.addTest(DtoolTasksTest('test_create_dataset_task_run'))
+    suite.addTest(DtoolTasksTest('test_static_metadata_override'))
+    suite.addTest(DtoolTasksTest('test_dynamic_metadata_override'))
+    suite.addTest(DtoolTasksTest('test_static_and_dynamic_metadata_override'))
+    suite.addTest(DtoolTasksTest('test_copy_dataset_task_to_smb_share'))
+    runner = unittest.TextTestRunner()
+    runner.run(suite)
+"""
+__author__ = 'Johannes Laurin Hoermann'
+__copyright__ = 'Copyright 2020, IMTEK Simulation, University of Freiburg'
+__email__ = 'johannes.hoermann@imtek.uni-freiburg.de, johannes.laurin@gmail.com'
+__date__ = 'Apr 27, 2020'
 
 import logging
 import unittest
@@ -12,9 +29,10 @@ import json
 import ruamel.yaml as yaml
 
 # needs dtool cli for verification
-import subprocess
+import subprocess  # TODO: replace cli sub-processes with custom verify calls
 
-from imteksimfw.fireworks.user_objects.firetasks.dtool_tasks import CreateDatasetTask
+import dtoolcore
+from imteksimfw.fireworks.user_objects.firetasks.dtool_tasks import CreateDatasetTask, CopyDatasetTask
 
 module_dir = os.path.abspath(os.path.dirname(__file__))
 
@@ -23,7 +41,6 @@ def _log_nested_dict(dct):
     logger = logging.getLogger(__name__)
     for l in json.dumps(dct, indent=2, default=str).splitlines():
         logger.debug(l)
-
 
 def _read_json(file):
     with open(file, 'r') as stream:
@@ -123,14 +140,91 @@ def _compare_frozen_metadata_against_template(
     return _compare(frozen_readme, parsed_reference_readme, to_compare)
 
 
+# TODO: there seems to be an issue with,
+# https://github.com/jic-dtool/dtool-info/blob/64e021dc06cc6dc6df3d5858fda3e553fa18b91d/dtool_info/dataset.py#L354
+# neglects custom config file
+# bug report, pull, then remove here
+def verify(full, dataset_uri, config_file=None):
+    """Verify the integrity of a dataset.
+    """
+    logger = logging.getLogger(__name__)
+    dataset = dtoolcore.DataSet.from_uri(dataset_uri, config_file)
+    all_okay = True
+
+    # Generate identifiers and sizes quickly without the
+    # hash calculation used when calling dataset.generate_manifest().
+    generated_sizes = {}
+    generated_relpaths = {}
+    for handle in dataset._storage_broker.iter_item_handles():
+        identifier = dtoolcore.utils.generate_identifier(handle)
+        size = dataset._storage_broker.get_size_in_bytes(handle)
+        relpath = dataset._storage_broker.get_relpath(handle)
+        generated_sizes[identifier] = size
+        generated_relpaths[identifier] = relpath
+
+    generated_identifiers = set(generated_sizes.keys())
+    manifest_identifiers = set(dataset.identifiers)
+
+    for i in generated_identifiers.difference(manifest_identifiers):
+        message = "Unknown item: {} {}".format(
+            i,
+            generated_relpaths[i]
+        )
+        logger.warn(message)
+        all_okay = False
+
+    for i in manifest_identifiers.difference(generated_identifiers):
+        message = "Missing item: {} {}".format(
+            i,
+            dataset.item_properties(i)["relpath"]
+        )
+        logger.warn(message)
+        all_okay = False
+
+    for i in manifest_identifiers.intersection(generated_identifiers):
+        generated_size = generated_sizes[i]
+        manifest_size = dataset.item_properties(i)["size_in_bytes"]
+        if generated_size != manifest_size:
+            message = "Altered item size: {} {}".format(
+                i,
+                dataset.item_properties(i)["relpath"]
+            )
+            logger.warn(message)
+            all_okay = False
+
+    if full:
+        generated_manifest = dataset.generate_manifest()
+        for i in manifest_identifiers.intersection(generated_identifiers):
+            generated_hash = generated_manifest["items"][i]["hash"]
+            manifest_hash = dataset.item_properties(i)["hash"]
+            if generated_hash != manifest_hash:
+                message = "Altered item hash: {} {}".format(
+                    i,
+                    dataset.item_properties(i)["relpath"]
+                )
+                logger.warn(message)
+                all_okay = False
+
+    return all_okay
+
+
 class DtoolTasksTest(unittest.TestCase):
     def setUp(self):
         self.files = {
-            'dtool_readme_static_and_dynamic_metadata_test': os.path.join(module_dir, "dtool_readme_static_and_dynamic_metadata_test.yml"),
-            'dtool_readme_dynamic_metadata_test': os.path.join(module_dir, "dtool_readme_dynamic_metadata_test.yml"),
-            'dtool_readme_static_metadata_test': os.path.join(module_dir, "dtool_readme_static_metadata_test.yml"),
-            'dtool_readme_template_path': os.path.join(module_dir, "dtool_readme.yml"),
-            'dtool_config_path': os.path.join(module_dir, "dtool.json"),
+            'dtool_readme_static_and_dynamic_metadata_test':
+                os.path.join(
+                    module_dir,
+                    "dtool_readme_static_and_dynamic_metadata_test.yml"),
+            'dtool_readme_dynamic_metadata_test':
+                os.path.join(
+                    module_dir, "dtool_readme_dynamic_metadata_test.yml"),
+            'dtool_readme_static_metadata_test':
+                os.path.join(
+                    module_dir, "dtool_readme_static_metadata_test.yml"),
+            'dtool_readme_template_path':
+                os.path.join(module_dir, "dtool_readme.yml"),
+            'dtool_config_path':
+                os.path.join(module_dir, "dtool.json"),
         }
 
         self._tmpdir = tempfile.TemporaryDirectory()
@@ -155,22 +249,13 @@ class DtoolTasksTest(unittest.TestCase):
         logger.debug("Instantiate CreateDatasetTask with '{}'".format(
             self.default_dtool_task_spec))
         t = CreateDatasetTask(**self.default_dtool_task_spec)
-        t.run_task({})
+        fw_action = t.run_task({})
+        logger.debug("FWAction:")
+        _log_nested_dict(fw_action.as_dict())
+        uri = fw_action.stored_data['uri']
 
-        dtool_verify_cmd = ['dtool', 'verify', self._dataset_name]
-        p = subprocess.Popen(
-            dtool_verify_cmd,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        outs, errs = p.communicate()
-        returncode = p.returncode
-
-        logger.debug("'{}' returned '{}'".format(
-            ' '.join(dtool_verify_cmd), returncode))
-        logger.debug("'{}' stdout:".format(' '.join(dtool_verify_cmd)))
-        logger.debug(outs)
-        logger.debug("'{}' stderr:".format(' '.join(dtool_verify_cmd)))
-        logger.debug(errs)
-        self.assertEqual(returncode, 0)
+        ret = verify(True, uri, self.files['dtool_config_path'])
+        self.assertEqual(ret, True)
 
         # compare metadata template and generated README.yml
         # expect filled in values like this:
@@ -226,22 +311,13 @@ class DtoolTasksTest(unittest.TestCase):
                 }
             }
         )
-        t.run_task({})
+        fw_action = t.run_task({})
+        logger.debug("FWAction:")
+        _log_nested_dict(fw_action.as_dict())
+        uri = fw_action.stored_data['uri']
 
-        dtool_verify_cmd = ['dtool', 'verify', self._dataset_name]
-        p = subprocess.Popen(
-            dtool_verify_cmd,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        outs, errs = p.communicate()
-        returncode = p.returncode
-
-        logger.debug("'{}' returned '{}'".format(
-            ' '.join(dtool_verify_cmd), returncode))
-        logger.debug("'{}' stdout:".format(' '.join(dtool_verify_cmd)))
-        logger.debug(outs)
-        logger.debug("'{}' stderr:".format(' '.join(dtool_verify_cmd)))
-        logger.debug(errs)
-        self.assertEqual(returncode, 0)
+        ret = verify(True, uri, self.files['dtool_config_path'])
+        self.assertEqual(ret, True)
 
         # legend:
         # - True compares key and value
@@ -279,7 +355,7 @@ class DtoolTasksTest(unittest.TestCase):
             **self.default_dtool_task_spec,
             metadata_key='deeply->deeply->nested',
         )
-        t.run_task(  # insert some fw_spec into metadata
+        fw_action = t.run_task(  # insert some fw_spec into metadata
             {
                 'deeply': {
                     'deeply': {
@@ -292,21 +368,12 @@ class DtoolTasksTest(unittest.TestCase):
                 }
             }
         )
+        logger.debug("FWAction:")
+        _log_nested_dict(fw_action.as_dict())
+        uri = fw_action.stored_data['uri']
 
-        dtool_verify_cmd = ['dtool', 'verify', self._dataset_name]
-        p = subprocess.Popen(
-            dtool_verify_cmd,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        outs, errs = p.communicate()
-        returncode = p.returncode
-
-        logger.debug("'{}' returned '{}'".format(
-            ' '.join(dtool_verify_cmd), returncode))
-        logger.debug("'{}' stdout:".format(' '.join(dtool_verify_cmd)))
-        logger.debug(outs)
-        logger.debug("'{}' stderr:".format(' '.join(dtool_verify_cmd)))
-        logger.debug(errs)
-        self.assertEqual(returncode, 0)
+        ret = verify(True, uri, self.files['dtool_config_path'])
+        self.assertEqual(ret, True)
 
         # legend:
         # - True compares key and value
@@ -350,7 +417,7 @@ class DtoolTasksTest(unittest.TestCase):
             },
             metadata_key='deeply->deeply->nested',
         )
-        t.run_task(  # insert some fw_spec into metadata
+        fw_action = t.run_task(  # insert some fw_spec into metadata
             {
                 'deeply': {
                     'deeply': {
@@ -364,21 +431,12 @@ class DtoolTasksTest(unittest.TestCase):
                 }
             }
         )
+        logger.debug("FWAction:")
+        _log_nested_dict(fw_action.as_dict())
+        uri = fw_action.stored_data['uri']
 
-        dtool_verify_cmd = ['dtool', 'verify', self._dataset_name]
-        p = subprocess.Popen(
-            dtool_verify_cmd,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        outs, errs = p.communicate()
-        returncode = p.returncode
-
-        logger.debug("'{}' returned '{}'".format(
-            ' '.join(dtool_verify_cmd), returncode))
-        logger.debug("'{}' stdout:".format(' '.join(dtool_verify_cmd)))
-        logger.debug(outs)
-        logger.debug("'{}' stderr:".format(' '.join(dtool_verify_cmd)))
-        logger.debug(errs)
-        self.assertEqual(returncode, 0)
+        ret = verify(True, uri, self.files['dtool_config_path'])
+        self.assertEqual(ret, True)
 
         # legend:
         # - True compares key and value
@@ -410,6 +468,53 @@ class DtoolTasksTest(unittest.TestCase):
         )
         self.assertEqual(compares, True)
 
+    def test_copy_dataset_task_to_smb_share(self):
+        """Requires a guest-writable share named 'sambashare' available locally.
+
+        The share has to offer an empty sub-directory 'dtool'.
+
+        A snippet within /ect/samba/smb.conf for tetsing purposes may look like
+        this:
+
+            [sambashare]
+                comment = Samba on Ubuntu
+                path = /tmp/sambashare
+                guest ok = yes
+                available = yes
+                read only = no
+                writeable = yes
+                browsable = yes
+                create mask = 0664
+                directory mask = 0775
+                guest account = unix-user-with-write-privilieges
+                force user = unix-user-with-write-privilieges
+                force group = sambashare
+
+        You may as well modify access parameters within 'dtool.json' config.
+        """
+        logger = logging.getLogger(__name__)
+
+        # create a dummy dataset locally for transferring to share
+        self.test_create_dataset_task_run()
+
+        # configure within dtool.json
+        target = 'smb://test-share'
+
+        logger.debug("Instantiate CopyDatasetTask.")
+        t = CopyDatasetTask(
+            source=self._dataset_name,
+            target=target,
+            dtool_config_path=self.files['dtool_config_path'])
+
+        fw_action = t.run_task({})
+        logger.debug("FWAction:")
+        _log_nested_dict(fw_action.as_dict())
+        target_uri = fw_action.stored_data['uri']
+
+        ret = verify(True, target_uri, self.files['dtool_config_path'])
+        self.assertEqual(ret, True)
+
+        # TODO: remove dataset from testing share
 
 
 if __name__ == '__main__':

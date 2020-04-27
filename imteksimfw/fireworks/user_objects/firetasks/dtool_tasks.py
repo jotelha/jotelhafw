@@ -18,7 +18,7 @@ import dtoolcore
 import dtoolcore.utils
 import dtool_create.dataset
 
-from fireworks.core.firework import FiretaskBase
+from fireworks.core.firework import FiretaskBase, FWAction
 from fireworks.utilities.dict_mods import get_nested_dict_value
 
 
@@ -27,6 +27,9 @@ __copyright__ = 'Copyright 2020, IMTEK Simulation, Univeristy of Freiburg'
 __email__ = 'johannes.hoermann@imtek.uni-freiburg.de'
 __date__ = 'Apr 27, 2020'
 
+
+# TODO: add option to retrieve uuid / uri of created / copied datasets
+# and insert back into workflow
 
 def _log_nested_dict(log_func, dct):
     for l in json.dumps(dct, indent=2, default=str).splitlines():
@@ -70,6 +73,30 @@ def dict_merge(dct, merge_dct, add_keys=True):
             dct[k] = v
 
     return dct
+
+
+# TODO: bug report, there seems to be an issue with
+# https://github.com/jic-dtool/dtoolcore/blob/6aff99531d1192f86512f662caf22a6ecd2198a5/dtoolcore/__init__.py#L111
+# not respecting custon config paths
+def _generate_uri(admin_metadata, base_uri, config_path=None):
+    """Return dataset URI.
+    :param admin_metadata: dataset administrative metadata
+    :param base_uri: base URI from which to derive dataset URI
+    :returns: dataset URI
+    """
+    logger = logging.getLogger(__name__)
+    logger.debug("In _generate_uri...")
+    logger.debug("_generate_uri.input_base_uri: {}".format(base_uri))
+    name = admin_metadata["name"]
+    uuid = admin_metadata["uuid"]
+    # storage_broker_lookup = _generate_storage_broker_lookup()
+    # parse_result = urlparse(base_uri)
+    # storage = parse_result.scheme
+    StorageBroker = dtoolcore._get_storage_broker(base_uri, config_path)
+    uri = StorageBroker.generate_uri(name, uuid, base_uri)
+    logger.debug("_generate_uri.return: {}".format(uri))
+    return uri
+
 
 
 # adapted from https://github.com/jic-dtool/dtool-create/blob/0a772aa5157523a7219963803293d4e521bc1aa2/dtool_create/dataset.py#L40
@@ -223,7 +250,7 @@ class CreateDatasetTask(FiretaskBase):
         except Exception:  # key not found
             dynamic_metadata = {}
 
-        logger.debug("Parsed dynamic fw_spec metadata:")
+        logger.debug("Dynamic fw_spec metadata:")
         _log_nested_dict(logger.debug, dynamic_metadata)
 
         # fw_task static metadata
@@ -310,3 +337,87 @@ class CreateDatasetTask(FiretaskBase):
         logger.debug("Item handles:")
         _log_nested_dict(logger.debug, handles)
         proto_dataset.freeze()
+
+        output = {
+            'uri': proto_dataset.uri,
+            'uuid': proto_dataset.uuid,
+            'name': proto_dataset.name,
+        }
+
+        return FWAction(stored_data=output)
+
+# see https://github.com/jic-dtool/dtool-create/blob/0a772aa5157523a7219963803293d4e521bc1aa2/dtool_create/dataset.py#L494
+class CopyDatasetTask(FiretaskBase):
+    """Copy a dtool data set from source to target.
+
+    Required params:
+        - target (str): base URI of target
+    Optional params:
+        - source (str): URI of source dataset, default: "dataset".
+        - resume (bool): continue to copy a dataset existing already partially
+            at target.
+        - dtool_config_path (str): Override dtool DEFAULT_CONFIG_PATH imported
+            from dtoolcore.utils. Default: None.
+    """
+
+    _fw_name = 'CopyDatasetTask'
+    required_params = ["target"]
+    optional_params = [
+        "source", "resume", "dtool_config_path"]
+
+    def run_task(self, fw_spec):
+        logger = logging.getLogger(__name__)
+
+        source = self.get("source", "dataset")
+        target = self.get("target")
+        resume = self.get("resume", False)
+        dtool_config_path = self.get(
+            "dtool_config_path") #, dtoolcore.utils.DEFAULT_CONFIG_PATH)
+        logger.info("Use dtool config '{}'.".format(dtool_config_path))
+
+        src_dataset = dtoolcore.DataSet.from_uri(source)
+
+        dest_uri = _generate_uri(
+            admin_metadata=src_dataset._admin_metadata,
+            base_uri=target, config_path=dtool_config_path
+        )
+        logger.info("Copy from '{}'".format(source))
+        logger.info("  to '{}'.".format(dest_uri))
+
+        if not resume:
+            # Check if the destination URI is already a dataset
+            # and exit gracefully if true.
+            if dtoolcore._is_dataset(dest_uri, config_path=dtool_config_path):
+                raise FileExistsError(
+                    "Dataset already exists: {}".format(dest_uri))
+
+            # If the destination URI is a "file" dataset one needs to check if
+            # the path already exists and exit gracefully if true.
+            parsed_dataset_uri = dtoolcore.utils.generous_parse_uri(dest_uri)
+            if parsed_dataset_uri.scheme == "file":
+                if os.path.exists(parsed_dataset_uri.path):
+                    raise FileExistsError(
+                        "Path already exists: {}".format(parsed_dataset_uri.path))
+
+            logger.info("Resume.")
+            copy_func = dtoolcore.copy
+        else:
+            copy_func = dtoolcore.copy_resume
+
+        target_uri = copy_func(
+            src_uri=source,
+            dest_base_uri=target,
+            config_path=dtool_config_path
+        )
+        logger.info("Copied to '{}'.".format(target_uri))
+
+        output = {
+            'target_uri': target_uri,
+        }
+        output = {
+            'uri': target_uri,
+            'uuid': src_dataset.uuid,  # must be the same
+            'name': src_dataset.name,  # must be the same
+        }
+
+        return FWAction(stored_data=output)

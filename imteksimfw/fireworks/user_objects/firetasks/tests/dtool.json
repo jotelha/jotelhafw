@@ -1,5 +1,12 @@
 {
   "DTOOL_README_TEMPLATE_FPATH": "/path/to/some/template/.dtool_readme.yml",
   "DTOOL_USER_EMAIL": "dtool@imteksimfw",
-  "DTOOL_USER_FULL_NAME": "Dtool Tasks Test"
+  "DTOOL_USER_FULL_NAME": "Dtool Tasks Test",
+  "DTOOL_SMB_USERNAME_test-share": "guest",
+  "DTOOL_SMB_PASSWORD_test-share": "a-guest-account-needs-no-password",
+  "DTOOL_SMB_SERVER_NAME_test-share": "localhost",
+  "DTOOL_SMB_SERVER_PORT_test-share": 445,
+  "DTOOL_SMB_DOMAIN_test-share": "WORKGROUP",
+  "DTOOL_SMB_SERVICE_NAME_test-share": "sambashare",
+  "DTOOL_SMB_PATH_test-share": "dtool"
 }
