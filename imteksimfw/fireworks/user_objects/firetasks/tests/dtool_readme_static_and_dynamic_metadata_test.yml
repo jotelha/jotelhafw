@@ -1,0 +1,13 @@
+project: DtoolTasksTest
+description: Tests on Fireworks tasks for handling dtool datasets.
+owners:
+  - name: {DTOOL_USER_FULL_NAME}
+    email: {DTOOL_USER_EMAIL}
+    username: {username}
+creation_date: {date}
+expiration_date: {date}
+metadata:
+  mode: trial
+  step: static and dynamic metadata test
+  static_field: set by task-level static metadata field
+  dynamic_field: set by Fireworks fw_spec-level dynamic metadata field
