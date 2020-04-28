@@ -32,7 +32,7 @@ import ruamel.yaml as yaml
 import subprocess  # TODO: replace cli sub-processes with custom verify calls
 
 import dtoolcore
-from imteksimfw.fireworks.user_objects.firetasks.dtool_tasks import CreateDatasetTask, CopyDatasetTask
+from imteksimfw.fireworks.user_objects.firetasks.dtool_tasks import CreateDatasetTask, CopyDatasetTask, TemporaryOSEnviron
 
 module_dir = os.path.abspath(os.path.dirname(__file__))
 
@@ -140,15 +140,12 @@ def _compare_frozen_metadata_against_template(
     return _compare(frozen_readme, parsed_reference_readme, to_compare)
 
 
-# TODO: there seems to be an issue with,
-# https://github.com/jic-dtool/dtool-info/blob/64e021dc06cc6dc6df3d5858fda3e553fa18b91d/dtool_info/dataset.py#L354
-# neglects custom config file
-# bug report, pull, then remove here
-def verify(full, dataset_uri, config_file=None):
+# see https://github.com/jic-dtool/dtool-info/blob/64e021dc06cc6dc6df3d5858fda3e553fa18b91d/dtool_info/dataset.py#L354
+def verify(full, dataset_uri):
     """Verify the integrity of a dataset.
     """
     logger = logging.getLogger(__name__)
-    dataset = dtoolcore.DataSet.from_uri(dataset_uri, config_file)
+    dataset = dtoolcore.DataSet.from_uri(dataset_uri)
     all_okay = True
 
     # Generate identifiers and sizes quickly without the
@@ -270,7 +267,9 @@ class DtoolTasksTest(unittest.TestCase):
         _log_nested_dict(fw_action.as_dict())
         uri = fw_action.stored_data['uri']
 
-        ret = verify(True, uri, self.files['dtool_config_path'])
+        with TemporaryOSEnviron(_read_json(self.files['dtool_config_path'])):
+            ret = verify(True, uri)
+
         self.assertEqual(ret, True)
 
         # compare metadata template and generated README.yml
@@ -332,7 +331,8 @@ class DtoolTasksTest(unittest.TestCase):
         _log_nested_dict(fw_action.as_dict())
         uri = fw_action.stored_data['uri']
 
-        ret = verify(True, uri, self.files['dtool_config_path'])
+        with TemporaryOSEnviron(_read_json(self.files['dtool_config_path'])):
+            ret = verify(True, uri)
         self.assertEqual(ret, True)
 
         # legend:
@@ -388,7 +388,8 @@ class DtoolTasksTest(unittest.TestCase):
         _log_nested_dict(fw_action.as_dict())
         uri = fw_action.stored_data['uri']
 
-        ret = verify(True, uri, self.files['dtool_config_path'])
+        with TemporaryOSEnviron(_read_json(self.files['dtool_config_path'])):
+            ret = verify(True, uri)
         self.assertEqual(ret, True)
 
         # legend:
@@ -451,7 +452,8 @@ class DtoolTasksTest(unittest.TestCase):
         _log_nested_dict(fw_action.as_dict())
         uri = fw_action.stored_data['uri']
 
-        ret = verify(True, uri, self.files['dtool_config_path'])
+        with TemporaryOSEnviron(_read_json(self.files['dtool_config_path'])):
+            ret = verify(True, uri)
         self.assertEqual(ret, True)
 
         # legend:
@@ -527,7 +529,8 @@ class DtoolTasksTest(unittest.TestCase):
         _log_nested_dict(fw_action.as_dict())
         target_uri = fw_action.stored_data['uri']
 
-        ret = verify(True, target_uri, self.files['dtool_config_path'])
+        with TemporaryOSEnviron(_read_json(self.files['dtool_config_path'])):
+            ret = verify(True, target_uri)
         self.assertEqual(ret, True)
 
         # TODO: remove dataset from testing share

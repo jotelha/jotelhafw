@@ -76,14 +76,10 @@ def dict_merge(dct, merge_dct, add_keys=True):
 
 
 # adapted from https://github.com/jic-dtool/dtool-create/blob/0a772aa5157523a7219963803293d4e521bc1aa2/dtool_create/dataset.py#L40
-def _get_readme_template(
-        fpath=None, config_path=dtoolcore.utils.DEFAULT_CONFIG_PATH):
-    """Allows for spcifying deviating dtool config and readme template file."""
-
+def _get_readme_template(fpath=None):
     if fpath is None:
         fpath = dtoolcore.utils.get_config_value(
             "DTOOL_README_TEMPLATE_FPATH",
-            config_path
         )
     if fpath is None:
         fpath = dtool_create.dataset.README_TEMPLATE_FPATH
@@ -93,14 +89,12 @@ def _get_readme_template(
 
     user_email = dtoolcore.utils.get_config_value(
         "DTOOL_USER_EMAIL",
-        config_path,
-        "you@example.com"
+        default="you@example.com"
     )
 
     user_full_name = dtoolcore.utils.get_config_value(
         "DTOOL_USER_FULL_NAME",
-        config_path,
-        "Your Name"
+        default="Your Name"
     )
 
     readme_template = readme_template.format(
@@ -122,15 +116,23 @@ class TemporaryOSEnviron:
 
     def __enter__(self):
         """Store backup of current os.environ."""
+        logger = logging.getLogger(__name__)
         self._original_environ = os.environ.copy()
 
         if self._insertions:
             for k, v in self._insertions.items():
                 os.environ[k] = str(v)
 
+        logger.debug("Initial os.environ:")
+        _log_nested_dict(logger.debug, os.environ)
+
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Restore backed up os.environ."""
+        logger = logging.getLogger(__name__)
         os.environ = self._original_environ
+        logger.debug("Recovered os.environ:")
+        _log_nested_dict(logger.debug, os.environ)
 
 
 class CreateDatasetTask(FiretaskBase):
@@ -147,8 +149,6 @@ class CreateDatasetTask(FiretaskBase):
             Per default '.', i.e. current working directory.
         - dtool_config (dict): dtool config key-value pairs, override
             defaults in $HOME/.config/dtool/dtool.json. Default: None
-        - dtool_config_path (str): Override dtool DEFAULT_CONFIG_PATH imported
-            from dtoolcore.utils. Default: None. DEPRECATED. Use dtool_config.
         - dtool_readme_template_path (str): Override default dtool readme
             template path. Default: None.
         - metadata_key (str): If not None, then get additional dynamic
@@ -169,7 +169,7 @@ class CreateDatasetTask(FiretaskBase):
     _fw_name = 'CreateDatasetTask'
     optional_params = [
         "name", "paths", "directory", "metadata", "metadata_key",
-        "dtool_readme_template_path", "dtool_config", "dtool_config_path"]
+        "dtool_readme_template_path", "dtool_config"]
 
     def run_task(self, fw_spec):
         logger = logging.getLogger(__name__)
@@ -188,12 +188,6 @@ class CreateDatasetTask(FiretaskBase):
         logger.debug("dtool config overrides:")
         _log_nested_dict(logger.debug, dtool_config)
 
-        dtool_config_path = self.get("dtool_config_path")
-        logger.info("Use dtool config '{}'.".format(dtool_config_path))
-
-        dtool_config_path = self.get("dtool_config_path")
-        logger.info("Use dtool config '{}'.".format(dtool_config_path))
-
         dtool_readme_template_path = self.get(
             "dtool_readme_template_path", None)
         logger.info("Use dtool README.yml template '{}'.".format(
@@ -201,7 +195,7 @@ class CreateDatasetTask(FiretaskBase):
 
         with TemporaryOSEnviron(env=dtool_config):
             dtool_readme_template = _get_readme_template(
-                dtool_readme_template_path, dtool_config_path)
+                dtool_readme_template_path)
             logger.debug("dtool README.yml template content:")
             _log_nested_dict(logger.debug, dtool_readme_template)
 
@@ -303,8 +297,7 @@ class CreateDatasetTask(FiretaskBase):
 
             proto_dataset = dtoolcore.generate_proto_dataset(
                 admin_metadata=admin_metadata,
-                base_uri=dtoolcore.utils.urlunparse(parsed_base_uri),
-                config_path=dtool_config_path)
+                base_uri=dtoolcore.utils.urlunparse(parsed_base_uri))
             proto_dataset.create()
             proto_dataset.put_readme(readme)
 
@@ -322,8 +315,7 @@ class CreateDatasetTask(FiretaskBase):
             logger.info("{} items in dataset '{}'.".format(num_items, name))
             max_files_limit = int(dtoolcore.utils.get_config_value(
                 "DTOOL_MAX_FILES_LIMIT",
-                dtool_config_path,
-                10000
+                default=10000
             ))
 
             assert isinstance(max_files_limit, int)
@@ -363,14 +355,12 @@ class CopyDatasetTask(FiretaskBase):
             at target.
         - dtool_config (dict): dtool config key-value pairs, override
             defaults in $HOME/.config/dtool/dtool.json. Default: None
-        - dtool_config_path (str): Override dtool DEFAULT_CONFIG_PATH imported
-            from dtoolcore.utils. Default: None. DEPRECATED. Use dtool_config.
     """
 
     _fw_name = 'CopyDatasetTask'
     required_params = ["target"]
     optional_params = [
-        "source", "resume", "dtool_config", "dtool_config_path"]
+        "source", "resume", "dtool_config"]
 
     def run_task(self, fw_spec):
         logger = logging.getLogger(__name__)
@@ -382,9 +372,6 @@ class CopyDatasetTask(FiretaskBase):
         dtool_config = self.get("dtool_config")
         logger.debug("dtool config overrides:")
         _log_nested_dict(logger.debug, dtool_config)
-
-        dtool_config_path = self.get("dtool_config_path")
-        logger.info("Use dtool config '{}'.".format(dtool_config_path))
 
         with TemporaryOSEnviron(env=dtool_config):
             src_dataset = dtoolcore.DataSet.from_uri(source)
@@ -399,7 +386,7 @@ class CopyDatasetTask(FiretaskBase):
             if not resume:
                 # Check if the destination URI is already a dataset
                 # and exit gracefully if true.
-                if dtoolcore._is_dataset(dest_uri, config_path=dtool_config_path):
+                if dtoolcore._is_dataset(dest_uri, config_path=None):
                     raise FileExistsError(
                         "Dataset already exists: {}".format(dest_uri))
 
@@ -419,7 +406,6 @@ class CopyDatasetTask(FiretaskBase):
             target_uri = copy_func(
                 src_uri=source,
                 dest_base_uri=target,
-                config_path=dtool_config_path
             )
             logger.info("Copied to '{}'.".format(target_uri))
 
