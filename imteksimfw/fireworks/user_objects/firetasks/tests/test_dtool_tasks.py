@@ -210,6 +210,8 @@ def verify(full, dataset_uri, config_file=None):
 
 class DtoolTasksTest(unittest.TestCase):
     def setUp(self):
+        logger = logging.getLogger(__name__)
+
         self.files = {
             'dtool_readme_static_and_dynamic_metadata_test':
                 os.path.join(
@@ -232,15 +234,29 @@ class DtoolTasksTest(unittest.TestCase):
         os.chdir(self._tmpdir.name)
 
         self._dataset_name = 'dataset'
+
+        # use environment variables instead of custom config file, see
+        # https://github.com/jic-dtool/dtoolcore/pull/17
+        # self._original_environ = os.environ.copy()
+
+        # inject configuration into environment:
+        dtool_config = _read_json(self.files['dtool_config_path'])
+        logger.debug("dtool config overrides:")
+        _log_nested_dict(dtool_config)
+
         self.default_dtool_task_spec = {
             'name': self._dataset_name,
             'dtool_readme_template_path': self.files["dtool_readme_template_path"],
-            'dtool_config_path': self.files["dtool_config_path"],
+            'dtool_config': dtool_config,
         }
+
+        # for k, v in dtool_config.items():
+            # os.environ[k] = str(v)
 
     def tearDown(self):
         os.chdir(self._previous_working_directory)
         self._tmpdir.cleanup()
+        # os.environ = self._original_environ
 
     def test_create_dataset_task_run(self):
         """Will create dataset with default parameters within current working directory."""
@@ -504,7 +520,7 @@ class DtoolTasksTest(unittest.TestCase):
         t = CopyDatasetTask(
             source=self._dataset_name,
             target=target,
-            dtool_config_path=self.files['dtool_config_path'])
+            dtool_config=self.default_dtool_task_spec['dtool_config'])
 
         fw_action = t.run_task({})
         logger.debug("FWAction:")

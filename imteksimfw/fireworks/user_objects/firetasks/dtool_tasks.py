@@ -75,30 +75,6 @@ def dict_merge(dct, merge_dct, add_keys=True):
     return dct
 
 
-# TODO: bug report, there seems to be an issue with, then remove here
-# https://github.com/jic-dtool/dtoolcore/blob/6aff99531d1192f86512f662caf22a6ecd2198a5/dtoolcore/__init__.py#L111
-# not respecting custon config paths
-def _generate_uri(admin_metadata, base_uri, config_path=None):
-    """Return dataset URI.
-    :param admin_metadata: dataset administrative metadata
-    :param base_uri: base URI from which to derive dataset URI
-    :returns: dataset URI
-    """
-    logger = logging.getLogger(__name__)
-    logger.debug("In _generate_uri...")
-    logger.debug("_generate_uri.input_base_uri: {}".format(base_uri))
-    name = admin_metadata["name"]
-    uuid = admin_metadata["uuid"]
-    # storage_broker_lookup = _generate_storage_broker_lookup()
-    # parse_result = urlparse(base_uri)
-    # storage = parse_result.scheme
-    StorageBroker = dtoolcore._get_storage_broker(base_uri, config_path)
-    uri = StorageBroker.generate_uri(name, uuid, base_uri)
-    logger.debug("_generate_uri.return: {}".format(uri))
-    return uri
-
-
-
 # adapted from https://github.com/jic-dtool/dtool-create/blob/0a772aa5157523a7219963803293d4e521bc1aa2/dtool_create/dataset.py#L40
 def _get_readme_template(
         fpath=None, config_path=dtoolcore.utils.DEFAULT_CONFIG_PATH):
@@ -137,6 +113,26 @@ def _get_readme_template(
     return readme_template
 
 
+class TemporaryOSEnviron:
+    """Preserve original os.environ context manager."""
+
+    def __init__(self, env=None):
+        """env is a flat dict to be inserted into os.environ."""
+        self._insertions = env
+
+    def __enter__(self):
+        """Store backup of current os.environ."""
+        self._original_environ = os.environ.copy()
+
+        if self._insertions:
+            for k, v in self._insertions.items():
+                os.environ[k] = str(v)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Restore backed up os.environ."""
+        os.environ = self._original_environ
+
+
 class CreateDatasetTask(FiretaskBase):
     """
     A Firetask to create a dtool data set.
@@ -149,8 +145,10 @@ class CreateDatasetTask(FiretaskBase):
             Per default, all content of 'directory'.
         - directory (str): Path to directory where to do pattern matching.
             Per default '.', i.e. current working directory.
+        - dtool_config (dict): dtool config key-value pairs, override
+            defaults in $HOME/.config/dtool/dtool.json. Default: None
         - dtool_config_path (str): Override dtool DEFAULT_CONFIG_PATH imported
-            from dtoolcore.utils. Default: None.
+            from dtoolcore.utils. Default: None. DEPRECATED. Use dtool_config.
         - dtool_readme_template_path (str): Override default dtool readme
             template path. Default: None.
         - metadata_key (str): If not None, then get additional dynamic
@@ -171,7 +169,7 @@ class CreateDatasetTask(FiretaskBase):
     _fw_name = 'CreateDatasetTask'
     optional_params = [
         "name", "paths", "directory", "metadata", "metadata_key",
-        "dtool_readme_template_path", "dtool_config_path"]
+        "dtool_readme_template_path", "dtool_config", "dtool_config_path"]
 
     def run_task(self, fw_spec):
         logger = logging.getLogger(__name__)
@@ -186,8 +184,14 @@ class CreateDatasetTask(FiretaskBase):
 
         logger.info("Create dtool dataset '{}'.".format(name))
 
-        dtool_config_path = self.get(
-            "dtool_config_path", dtoolcore.utils.DEFAULT_CONFIG_PATH)
+        dtool_config = self.get("dtool_config")
+        logger.debug("dtool config overrides:")
+        _log_nested_dict(logger.debug, dtool_config)
+
+        dtool_config_path = self.get("dtool_config_path")
+        logger.info("Use dtool config '{}'.".format(dtool_config_path))
+
+        dtool_config_path = self.get("dtool_config_path")
         logger.info("Use dtool config '{}'.".format(dtool_config_path))
 
         dtool_readme_template_path = self.get(
@@ -195,148 +199,149 @@ class CreateDatasetTask(FiretaskBase):
         logger.info("Use dtool README.yml template '{}'.".format(
             dtool_readme_template_path))
 
-        dtool_readme_template = _get_readme_template(
-            dtool_readme_template_path, dtool_config_path)
-        logger.debug("dtool README.yml template content:")
-        _log_nested_dict(logger.debug, dtool_readme_template)
+        with TemporaryOSEnviron(env=dtool_config):
+            dtool_readme_template = _get_readme_template(
+                dtool_readme_template_path, dtool_config_path)
+            logger.debug("dtool README.yml template content:")
+            _log_nested_dict(logger.debug, dtool_readme_template)
 
-        # generate list of files to place tihin dataset
-        directory = os.path.abspath(self.get("directory", "."))
-        paths = self.get("paths", None)
-        abspaths = []
-        if paths is not None:
-            if isinstance(self["paths"], list):
-                logger.info("Treating 'paths' field as list of files.")
-                relpaths = paths
-                abspaths = [os.path.abspath(p) for p in self["paths"]]
-            else:
-                logger.info("Treating 'paths' field as glob pattern.")
-                logger.info("Searching within '{}'.".format(directory))
-                relpaths = list(
-                    glob.glob("{}/{}".format(directory, self["paths"])))
-                abspaths = [os.path.abspath(p) for p in relpaths]
-        else:  # everything within cwd
-            logger.info("'paths' not specified,")
-            logger.info("Adding all content of '{}'.".format(directory))
-            relpaths = []
-            abspaths= []
-            # just list files, not directories
-            for root, subdirs, files in os.walk('.'):
-                for f in files:
-                    p = os.path.join(root, f)
-                    relpaths.append(p)
-                    abspaths.append(os.path.abspath(p))
+            # generate list of files to place tihin dataset
+            directory = os.path.abspath(self.get("directory", "."))
+            paths = self.get("paths", None)
+            abspaths = []
+            if paths is not None:
+                if isinstance(self["paths"], list):
+                    logger.info("Treating 'paths' field as list of files.")
+                    relpaths = paths
+                    abspaths = [os.path.abspath(p) for p in self["paths"]]
+                else:
+                    logger.info("Treating 'paths' field as glob pattern.")
+                    logger.info("Searching within '{}'.".format(directory))
+                    relpaths = list(
+                        glob.glob("{}/{}".format(directory, self["paths"])))
+                    abspaths = [os.path.abspath(p) for p in relpaths]
+            else:  # everything within cwd
+                logger.info("'paths' not specified,")
+                logger.info("Adding all content of '{}'.".format(directory))
+                relpaths = []
+                abspaths= []
+                # just list files, not directories
+                for root, subdirs, files in os.walk('.'):
+                    for f in files:
+                        p = os.path.join(root, f)
+                        relpaths.append(p)
+                        abspaths.append(os.path.abspath(p))
 
-        logger.debug("Items to add to dataset:")
-        logger.debug(relpaths)
-        logger.debug("Corresponding absolute paths on file system:")
-        logger.debug(abspaths)
+            logger.debug("Items to add to dataset:")
+            logger.debug(relpaths)
+            logger.debug("Corresponding absolute paths on file system:")
+            logger.debug(abspaths)
 
-        # README.yml metadata merging:
+            # README.yml metadata merging:
 
-        # see https://github.com/jic-dtool/dtool-create/blob/0a772aa5157523a7219963803293d4e521bc1aa2/dtool_create/dataset.py#L244
-        yaml = YAML()
-        yaml.explicit_start = True
-        yaml.indent(mapping=2, sequence=4, offset=2)
-        template_metadata = yaml.load(dtool_readme_template)
+            # see https://github.com/jic-dtool/dtool-create/blob/0a772aa5157523a7219963803293d4e521bc1aa2/dtool_create/dataset.py#L244
+            yaml = YAML()
+            yaml.explicit_start = True
+            yaml.indent(mapping=2, sequence=4, offset=2)
+            template_metadata = yaml.load(dtool_readme_template)
 
-        logger.debug("Parsed readme template metadata:")
-        _log_nested_dict(logger.debug, template_metadata)
+            logger.debug("Parsed readme template metadata:")
+            _log_nested_dict(logger.debug, template_metadata)
 
-        # fw_spec dynamic metadata
-        metadata_key = self.get("metadata_key", "metadata")
-        try:
-            dynamic_metadata = get_nested_dict_value(fw_spec, metadata_key)
-        except Exception:  # key not found
-            dynamic_metadata = {}
+            # fw_spec dynamic metadata
+            metadata_key = self.get("metadata_key", "metadata")
+            try:
+                dynamic_metadata = get_nested_dict_value(fw_spec, metadata_key)
+            except Exception:  # key not found
+                dynamic_metadata = {}
 
-        logger.debug("Dynamic fw_spec metadata:")
-        _log_nested_dict(logger.debug, dynamic_metadata)
+            logger.debug("Dynamic fw_spec metadata:")
+            _log_nested_dict(logger.debug, dynamic_metadata)
 
-        # fw_task static metadata
-        static_metadata = self.get("metadata", {})
-        logger.debug("Static task-level metadata:")
-        _log_nested_dict(logger.debug, static_metadata)
+            # fw_task static metadata
+            static_metadata = self.get("metadata", {})
+            logger.debug("Static task-level metadata:")
+            _log_nested_dict(logger.debug, static_metadata)
 
-        metadata = {}
-        metadata = dict_merge(template_metadata, dynamic_metadata)
-        metadata = dict_merge(metadata, static_metadata)
-        logger.debug("Merged metadata:")
-        _log_nested_dict(logger.debug, metadata)
+            metadata = {}
+            metadata = dict_merge(template_metadata, dynamic_metadata)
+            metadata = dict_merge(metadata, static_metadata)
+            logger.debug("Merged metadata:")
+            _log_nested_dict(logger.debug, metadata)
 
-        readme_stream = io.StringIO()
-        yaml.dump(metadata, readme_stream)
-        readme = readme_stream.getvalue()
+            readme_stream = io.StringIO()
+            yaml.dump(metadata, readme_stream)
+            readme = readme_stream.getvalue()
 
-        logger.debug("Content of generated README.yml:")
-        for l in readme.splitlines():
-            logger.debug("  " + l)
+            logger.debug("Content of generated README.yml:")
+            for l in readme.splitlines():
+                logger.debug("  " + l)
 
-        # dtool default owner metadata for dataset creation
-        admin_metadata = dtoolcore.generate_admin_metadata(name)
-        # looks like
-        # >>> admin_metadata = dtoolcore.generate_admin_metadata("test")
-        # >>> admin_metadata
-        # {
-        #   'uuid': 'c19bab1d-8f6b-4e44-99ad-1b09ea198dfe',
-        #   'dtoolcore_version': '3.17.0',
-        #   'name': 'test',
-        #   'type': 'protodataset',
-        #   'creator_username': 'jotelha',
-        #   'created_at': 1587987156.127988
-        # }
-        logger.debug("Dataset admin metadata:")
-        _log_nested_dict(logger.debug, admin_metadata)
+            # dtool default owner metadata for dataset creation
+            admin_metadata = dtoolcore.generate_admin_metadata(name)
+            # looks like
+            # >>> admin_metadata = dtoolcore.generate_admin_metadata("test")
+            # >>> admin_metadata
+            # {
+            #   'uuid': 'c19bab1d-8f6b-4e44-99ad-1b09ea198dfe',
+            #   'dtoolcore_version': '3.17.0',
+            #   'name': 'test',
+            #   'type': 'protodataset',
+            #   'creator_username': 'jotelha',
+            #   'created_at': 1587987156.127988
+            # }
+            logger.debug("Dataset admin metadata:")
+            _log_nested_dict(logger.debug, admin_metadata)
 
-        # see https://github.com/jic-dtool/dtool-create/blob/0a772aa5157523a7219963803293d4e521bc1aa2/dtool_create/dataset.py#L120
-        parsed_base_uri = dtoolcore.utils.generous_parse_uri(os.getcwd())
-        # create dataset in current working directory
+            # see https://github.com/jic-dtool/dtool-create/blob/0a772aa5157523a7219963803293d4e521bc1aa2/dtool_create/dataset.py#L120
+            parsed_base_uri = dtoolcore.utils.generous_parse_uri(os.getcwd())
+            # create dataset in current working directory
 
-        # NOTE: dtool_create.dataset.create has specific symlink scheme treatment at
-        # https://github.com/jic-dtool/dtool-create/blob/0a772aa5157523a7219963803293d4e521bc1aa2/dtool_create/dataset.py#L127
-        # not treated here.
+            # NOTE: dtool_create.dataset.create has specific symlink scheme treatment at
+            # https://github.com/jic-dtool/dtool-create/blob/0a772aa5157523a7219963803293d4e521bc1aa2/dtool_create/dataset.py#L127
+            # not treated here.
 
-        proto_dataset = dtoolcore.generate_proto_dataset(
-            admin_metadata=admin_metadata,
-            base_uri=dtoolcore.utils.urlunparse(parsed_base_uri),
-            config_path=dtool_config_path)
-        proto_dataset.create()
-        proto_dataset.put_readme(readme)
+            proto_dataset = dtoolcore.generate_proto_dataset(
+                admin_metadata=admin_metadata,
+                base_uri=dtoolcore.utils.urlunparse(parsed_base_uri),
+                config_path=dtool_config_path)
+            proto_dataset.create()
+            proto_dataset.put_readme(readme)
 
-        # add items to dataset one by one
-        # TODO: possibility for per-item metadata
-        for abspath, relpath in zip(abspaths, relpaths):
-            logger.info("Add '{}' as '{}' to dataset '{}'.".format(
-                abspath, relpath, name))
-            proto_dataset.put_item(abspath, relpath)
+            # add items to dataset one by one
+            # TODO: possibility for per-item metadata
+            for abspath, relpath in zip(abspaths, relpaths):
+                logger.info("Add '{}' as '{}' to dataset '{}'.".format(
+                    abspath, relpath, name))
+                proto_dataset.put_item(abspath, relpath)
 
-        # freeze dataset
-        # see https://github.com/jic-dtool/dtool-create/blob/0a772aa5157523a7219963803293d4e521bc1aa2/dtool_create/dataset.py#L438
+            # freeze dataset
+            # see https://github.com/jic-dtool/dtool-create/blob/0a772aa5157523a7219963803293d4e521bc1aa2/dtool_create/dataset.py#L438
 
-        num_items = len(list(proto_dataset._identifiers()))
-        logger.info("{} items in dataset '{}'.".format(num_items, name))
-        max_files_limit = int(dtoolcore.utils.get_config_value(
-            "DTOOL_MAX_FILES_LIMIT",
-            dtool_config_path,
-            10000
-        ))
+            num_items = len(list(proto_dataset._identifiers()))
+            logger.info("{} items in dataset '{}'.".format(num_items, name))
+            max_files_limit = int(dtoolcore.utils.get_config_value(
+                "DTOOL_MAX_FILES_LIMIT",
+                dtool_config_path,
+                10000
+            ))
 
-        assert isinstance(max_files_limit, int)
-        if num_items > max_files_limit:
-            raise ValueError(
-                "Too many items ({} > {}) in proto dataset".format(
-                    num_items,
-                    max_files_limit
-                ))
+            assert isinstance(max_files_limit, int)
+            if num_items > max_files_limit:
+                raise ValueError(
+                    "Too many items ({} > {}) in proto dataset".format(
+                        num_items,
+                        max_files_limit
+                    ))
 
-        handles = [h for h in proto_dataset._storage_broker.iter_item_handles()]
-        for h in handles:
-            if not dtool_create.utils.valid_handle(h):
-                raise ValueError("Invalid item name: {}".format(h))
+            handles = [h for h in proto_dataset._storage_broker.iter_item_handles()]
+            for h in handles:
+                if not dtool_create.utils.valid_handle(h):
+                    raise ValueError("Invalid item name: {}".format(h))
 
-        logger.debug("Item handles:")
-        _log_nested_dict(logger.debug, handles)
-        proto_dataset.freeze()
+            logger.debug("Item handles:")
+            _log_nested_dict(logger.debug, handles)
+            proto_dataset.freeze()
 
         output = {
             'uri': proto_dataset.uri,
@@ -356,14 +361,16 @@ class CopyDatasetTask(FiretaskBase):
         - source (str): URI of source dataset, default: "dataset".
         - resume (bool): continue to copy a dataset existing already partially
             at target.
+        - dtool_config (dict): dtool config key-value pairs, override
+            defaults in $HOME/.config/dtool/dtool.json. Default: None
         - dtool_config_path (str): Override dtool DEFAULT_CONFIG_PATH imported
-            from dtoolcore.utils. Default: None.
+            from dtoolcore.utils. Default: None. DEPRECATED. Use dtool_config.
     """
 
     _fw_name = 'CopyDatasetTask'
     required_params = ["target"]
     optional_params = [
-        "source", "resume", "dtool_config_path"]
+        "source", "resume", "dtool_config", "dtool_config_path"]
 
     def run_task(self, fw_spec):
         logger = logging.getLogger(__name__)
@@ -371,45 +378,50 @@ class CopyDatasetTask(FiretaskBase):
         source = self.get("source", "dataset")
         target = self.get("target")
         resume = self.get("resume", False)
-        dtool_config_path = self.get(
-            "dtool_config_path") #, dtoolcore.utils.DEFAULT_CONFIG_PATH)
+
+        dtool_config = self.get("dtool_config")
+        logger.debug("dtool config overrides:")
+        _log_nested_dict(logger.debug, dtool_config)
+
+        dtool_config_path = self.get("dtool_config_path")
         logger.info("Use dtool config '{}'.".format(dtool_config_path))
 
-        src_dataset = dtoolcore.DataSet.from_uri(source)
+        with TemporaryOSEnviron(env=dtool_config):
+            src_dataset = dtoolcore.DataSet.from_uri(source)
 
-        dest_uri = _generate_uri(
-            admin_metadata=src_dataset._admin_metadata,
-            base_uri=target, config_path=dtool_config_path
-        )
-        logger.info("Copy from '{}'".format(source))
-        logger.info("  to '{}'.".format(dest_uri))
+            dest_uri = dtoolcore._generate_uri(
+                admin_metadata=src_dataset._admin_metadata,
+                base_uri=target
+            )
+            logger.info("Copy from '{}'".format(source))
+            logger.info("  to '{}'.".format(dest_uri))
 
-        if not resume:
-            # Check if the destination URI is already a dataset
-            # and exit gracefully if true.
-            if dtoolcore._is_dataset(dest_uri, config_path=dtool_config_path):
-                raise FileExistsError(
-                    "Dataset already exists: {}".format(dest_uri))
-
-            # If the destination URI is a "file" dataset one needs to check if
-            # the path already exists and exit gracefully if true.
-            parsed_dataset_uri = dtoolcore.utils.generous_parse_uri(dest_uri)
-            if parsed_dataset_uri.scheme == "file":
-                if os.path.exists(parsed_dataset_uri.path):
+            if not resume:
+                # Check if the destination URI is already a dataset
+                # and exit gracefully if true.
+                if dtoolcore._is_dataset(dest_uri, config_path=dtool_config_path):
                     raise FileExistsError(
-                        "Path already exists: {}".format(parsed_dataset_uri.path))
+                        "Dataset already exists: {}".format(dest_uri))
 
-            logger.info("Resume.")
-            copy_func = dtoolcore.copy
-        else:
-            copy_func = dtoolcore.copy_resume
+                # If the destination URI is a "file" dataset one needs to check if
+                # the path already exists and exit gracefully if true.
+                parsed_dataset_uri = dtoolcore.utils.generous_parse_uri(dest_uri)
+                if parsed_dataset_uri.scheme == "file":
+                    if os.path.exists(parsed_dataset_uri.path):
+                        raise FileExistsError(
+                            "Path already exists: {}".format(parsed_dataset_uri.path))
 
-        target_uri = copy_func(
-            src_uri=source,
-            dest_base_uri=target,
-            config_path=dtool_config_path
-        )
-        logger.info("Copied to '{}'.".format(target_uri))
+                logger.info("Resume.")
+                copy_func = dtoolcore.copy
+            else:
+                copy_func = dtoolcore.copy_resume
+
+            target_uri = copy_func(
+                src_uri=source,
+                dest_base_uri=target,
+                config_path=dtool_config_path
+            )
+            logger.info("Copied to '{}'.".format(target_uri))
 
         output = {
             'target_uri': target_uri,
