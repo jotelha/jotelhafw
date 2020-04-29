@@ -1,0 +1,11 @@
+project: DtoolTasksTest
+description: Tests on Fireworks tasks for handling dtool datasets.
+owners:
+  - name: {DTOOL_USER_FULL_NAME}
+    email: {DTOOL_USER_EMAIL}
+    username: {username}
+creation_date: {date}
+expiration_date: {date}
+metadata:
+  mode: trial
+  step: static metadata test
