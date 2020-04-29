@@ -1385,7 +1385,7 @@ class PyEnvTask(EnvTask, PyTask):
             self._py_hist_append('args = []')
 
         if len(kwargs) > 0:
-            self._py_hist_append('kwargs = {}'.format(args))
+            self._py_hist_append('kwargs = {}'.format(kwargs))
         else:
             self._py_hist_append('kwargs = {}')
 

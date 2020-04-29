@@ -28,8 +28,7 @@ __email__ = 'johannes.hoermann@imtek.uni-freiburg.de, johannes.laurin@gmail.com'
 __date__ = 'Apr 27, 2020'
 
 
-# TODO: add option to retrieve uuid / uri of created / copied datasets
-# and insert back into workflow
+# TODO: add option to specify drived datasets
 
 def _log_nested_dict(log_func, dct):
     for l in json.dumps(dct, indent=2, default=str).splitlines():
@@ -161,6 +160,11 @@ class CreateDatasetTask(FiretaskBase):
         - metadata (dict): Static metadata to attach to data set.
             Static metadata takes precendence over dynamic metadata in case of
             overlap. Also overrides fields specified in readme template.
+        - output (str): spec key that will be used to pass
+            the new dataset's properties to child fireworks. Default: None
+        - propagate (bool, default:None): if True, then set the
+            FWAction 'propagate' flag and propagate updated fw_spec not only to
+            direct children, but to all descendants down to wokflow's leaves.
 
     The dataset's README.yml file is a successive merge of the README template,
     static metadata and dynamic metadata, ordered by increasing precedence in
@@ -169,7 +173,7 @@ class CreateDatasetTask(FiretaskBase):
     _fw_name = 'CreateDatasetTask'
     optional_params = [
         "name", "paths", "directory", "metadata", "metadata_key",
-        "dtool_readme_template_path", "dtool_config"]
+        "dtool_readme_template_path", "dtool_config", "output", "propagate"]
 
     def run_task(self, fw_spec):
         logger = logging.getLogger(__name__)
@@ -192,6 +196,9 @@ class CreateDatasetTask(FiretaskBase):
             "dtool_readme_template_path", None)
         logger.info("Use dtool README.yml template '{}'.".format(
             dtool_readme_template_path))
+
+        propagate = self.get('propagate', False)
+        output_key = self.get('output', None)
 
         with TemporaryOSEnviron(env=dtool_config):
             dtool_readme_template = _get_readme_template(
@@ -341,7 +348,16 @@ class CreateDatasetTask(FiretaskBase):
             'name': proto_dataset.name,
         }
 
-        return FWAction(stored_data=output)
+        fw_action = FWAction(stored_data=output)
+
+        # 'propagate' only development feature for now
+        if hasattr(fw_action, 'propagate') and propagate:
+            fw_action.propagate = propagate
+
+        if output_key:  # inject into fw_spec
+            fw_action.mod_spec = [{'_set': {output_key: output}}]
+
+        return fw_action
 
 # see https://github.com/jic-dtool/dtool-create/blob/0a772aa5157523a7219963803293d4e521bc1aa2/dtool_create/dataset.py#L494
 class CopyDatasetTask(FiretaskBase):
@@ -360,7 +376,7 @@ class CopyDatasetTask(FiretaskBase):
     _fw_name = 'CopyDatasetTask'
     required_params = ["target"]
     optional_params = [
-        "source", "resume", "dtool_config"]
+        "source", "resume", "dtool_config", "output", "propagate"]
 
     def run_task(self, fw_spec):
         logger = logging.getLogger(__name__)
@@ -372,6 +388,9 @@ class CopyDatasetTask(FiretaskBase):
         dtool_config = self.get("dtool_config")
         logger.debug("dtool config overrides:")
         _log_nested_dict(logger.debug, dtool_config)
+
+        output_key = self.get("output")
+        propagate = self.get("propagate", False)
 
         with TemporaryOSEnviron(env=dtool_config):
             src_dataset = dtoolcore.DataSet.from_uri(source)
@@ -418,4 +437,13 @@ class CopyDatasetTask(FiretaskBase):
             'name': src_dataset.name,  # must be the same
         }
 
-        return FWAction(stored_data=output)
+        fw_action = FWAction(stored_data=output)
+
+        # 'propagate' only development feature for now
+        if hasattr(fw_action, 'propagate') and propagate:
+            fw_action.propagate = propagate
+
+        if output_key:
+            fw_action.mod_spec = [{'_set': {output_key: output}}]
+
+        return fw_action
