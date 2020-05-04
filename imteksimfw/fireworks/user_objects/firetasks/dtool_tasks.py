@@ -31,9 +31,6 @@ __email__ = 'johannes.hoermann@imtek.uni-freiburg.de, johannes.laurin@gmail.com'
 __date__ = 'Apr 27, 2020'
 
 
-# TODO: add option to specify origin of derived datasets
-# TODO: add option to pull dtool config options from fw_spec
-
 def _log_nested_dict(log_func, dct):
     for l in json.dumps(dct, indent=2, default=str).splitlines():
         log_func(l)
@@ -76,6 +73,19 @@ def dict_merge(dct, merge_dct, add_keys=True):
             dct[k] = v
 
     return dct
+
+
+def from_fw_spec(param, fw_spec):
+    """Expands param['key'] as key within fw_spec.
+
+    If param is dict hand has field 'key', then return value at specified
+    position from fw_spec. Otherwise, return 'param' itself.
+    """
+    if isinstance(param, dict) and 'key' in param:
+        ret = get_nested_dict_value(fw_spec, param['key'])
+    else:
+        ret = param
+    return ret
 
 
 # adapted from https://github.com/jic-dtool/dtool-create/blob/0a772aa5157523a7219963803293d4e521bc1aa2/dtool_create/dataset.py#L40
@@ -147,6 +157,9 @@ class DtoolTask(FiretaskBase):
     Optional params:
         - dtool_config (dict): dtool config key-value pairs, override
             defaults in $HOME/.config/dtool/dtool.json. Default: None
+        - dtool_config_key (str): key to dict within fw_spec, override
+            defaults in $HOME/.config/dtool/dtool.json and static dtool_config
+            task spec. Default: None.
         - stored_data (bool, default: False): put handled dataset properties
             into FWAction.stored_data
         - output (str): spec key that will be used to pass
@@ -160,7 +173,12 @@ class DtoolTask(FiretaskBase):
     _fw_name = 'DtoolTask'
     required_params: List[str] = []
     optional_params = [
-        "dtool_config", "stored_data", "output", "dict_mod", "propagate"]
+        "dtool_config",
+        "dtool_config_key",
+        "stored_data",
+        "output",
+        "dict_mod",
+        "propagate"]
 
     @abstractmethod
     def _run_task_internal(self, fw_spec) -> dtoolcore.DataSet:
@@ -170,7 +188,23 @@ class DtoolTask(FiretaskBase):
         logger = logging.getLogger(__name__)
 
         dtool_config = self.get("dtool_config")
-        logger.debug("dtool config overrides:")
+        logger.debug("task spec level dtool config overrides:")
+        _log_nested_dict(logger.debug, dtool_config)
+
+        # fw_spec dynamic dtool_config overrides
+        dtool_config_key = self.get("dtool_config_key")
+        dtool_config_update = {}
+        if dtool_config_key is not None:
+            try:
+                dtool_config_update = get_nested_dict_value(
+                    fw_spec, dtool_config_key)
+                logger.debug("fw_spec level dtool config overrides:")
+                _log_nested_dict(logger.debug, dtool_config_update)
+            except Exception:  # key not found
+                logger.warn("{} not found within fw_spec, ignored.".format(
+                    dtool_config_key))
+        dtool_config.update(dtool_config_update)
+        logger.debug("effective dtool config overrides:")
         _log_nested_dict(logger.debug, dtool_config)
 
         stored_data = self.get('stored_data', False)
@@ -211,9 +245,8 @@ class CreateDatasetTask(DtoolTask):
     Required params:
         None
     Optional params:
-        - name (str): Name of dataset, default: "dataset".
-        - paths (list/str): Either list of paths or a glob pattern string.
-            Per default, all content of 'directory'.
+        - creator_username (str): Overrides system username if specified.
+            Default: None.
         - directory (str): Path to directory where to do pattern matching.
             Per default '.', i.e. current working directory.
         - dtool_readme_template_path (str): Override default dtool readme
@@ -224,14 +257,24 @@ class CreateDatasetTask(DtoolTask):
             Specified key must point to a dict.
             Specify nested fields with a '->' or '.' delimiter.
             If specified key does not exist or is no dict, then ignore.
-            Default: 'metadata'
+            Default: 'metadata'.
         - metadata (dict): Static metadata to attach to data set.
             Static metadata takes precendence over dynamic metadata in case of
             overlap. Also overrides fields specified in readme template.
+        - name (str): Name of dataset, default: "dataset".
+        - paths (list/str): Either list of paths or a glob pattern string.
+            Per default, all content of 'directory'.
+        - source_dataset_uri (str): A derived dataset will be created if
+            specified. Default: None.
 
     The dataset's README.yml file is a successive merge of the README template,
     static metadata and dynamic metadata, ordered by increasing precedence in
     the case of conflicting fields.
+
+    Fields 'creator_username', 'dtool_readme_template_path', 'name', and
+    'source_dataset_uri' may also be a dict of format
+    { 'key': 'some->nested->fw_spec->key' } for looking up value within
+    fw_spec instead.
     """
     _fw_name = 'CreateDatasetTask'
     required_params = [
@@ -239,27 +282,50 @@ class CreateDatasetTask(DtoolTask):
 
     optional_params = [
         *DtoolTask.optional_params,
-        "name", "paths", "directory", "metadata", "metadata_key",
-        "dtool_readme_template_path"]
+        "creator_username",
+        "directory",
+        "dtool_readme_template_path",
+        "metadata",
+        "metadata_key",
+        "name",
+        "paths",
+        "source_dataset_uri"]
 
     def _run_task_internal(self, fw_spec):
         logger = logging.getLogger(__name__)
 
         name = self.get(
             "name", "dataset")
+
+        name = from_fw_spec(name, fw_spec)
+
         # see https://github.com/jic-dtool/dtoolcore/blob/6aff99531d1192f86512f662caf22a6ecd2198a5/dtoolcore/utils.py#L254
         if not dtoolcore.utils.name_is_valid(name):
             raise ValueError((
                 "The dataset name can only be 80 characters long. "
                 "Valid characters: Alpha numeric characters [0-9a-zA-Z]"
                 "Valid special characters: - _ ."))
-
         logger.info("Create dtool dataset '{}'.".format(name))
+
+        creator_username = self.get(
+            "creator_username", None)
+        creator_username = from_fw_spec(creator_username, fw_spec)
+        if creator_username is not None:
+            logger.info("Overriding system username with '{}'.".format(
+                creator_username))
+
+        source_dataset_uri = self.get(
+            "source_dataset_uri", None)
+        source_dataset_uri = from_fw_spec(source_dataset_uri, fw_spec)
+        if source_dataset_uri is not None:
+            logger.info("Derive from '{}'.".format(source_dataset_uri))
 
         dtool_readme_template_path = self.get(
             "dtool_readme_template_path", None)
+        dtool_readme_template_path = from_fw_spec(dtool_readme_template_path, fw_spec)
         logger.info("Use dtool README.yml template '{}'.".format(
             dtool_readme_template_path))
+
         dtool_readme_template = _get_readme_template(
             dtool_readme_template_path)
         logger.debug("dtool README.yml template content:")
@@ -338,7 +404,7 @@ class CreateDatasetTask(DtoolTask):
             logger.debug("  " + l)
 
         # dtool default owner metadata for dataset creation
-        admin_metadata = dtoolcore.generate_admin_metadata(name)
+        # admin_metadata = dtoolcore.generate_admin_metadata(name)
         # looks like
         # >>> admin_metadata = dtoolcore.generate_admin_metadata("test")
         # >>> admin_metadata
@@ -350,8 +416,8 @@ class CreateDatasetTask(DtoolTask):
         #   'creator_username': 'jotelha',
         #   'created_at': 1587987156.127988
         # }
-        logger.debug("Dataset admin metadata:")
-        _log_nested_dict(logger.debug, admin_metadata)
+        # logger.debug("Dataset admin metadata:")
+        # _log_nested_dict(logger.debug, admin_metadata)
 
         # see https://github.com/jic-dtool/dtool-create/blob/0a772aa5157523a7219963803293d4e521bc1aa2/dtool_create/dataset.py#L120
         parsed_base_uri = dtoolcore.utils.generous_parse_uri(os.getcwd())
@@ -361,11 +427,27 @@ class CreateDatasetTask(DtoolTask):
         # https://github.com/jic-dtool/dtool-create/blob/0a772aa5157523a7219963803293d4e521bc1aa2/dtool_create/dataset.py#L127
         # not treated here.
 
-        proto_dataset = dtoolcore.generate_proto_dataset(
-            admin_metadata=admin_metadata,
-            base_uri=dtoolcore.utils.urlunparse(parsed_base_uri))
-        proto_dataset.create()
-        proto_dataset.put_readme(readme)
+        if source_dataset_uri is not None:
+            parsed_source_dataset_uri = dtoolcore.utils.generous_parse_uri(
+                source_dataset_uri)
+            logger.info("Derive new dataset from '{}'.".format(
+                parsed_source_dataset_uri))
+            source_dataset = dtoolcore.DataSet.from_uri(source_dataset_uri)
+            logger.info(
+                "Source dataset has name '{}', uri '{}', and uuid '{}'."
+                .format(source_dataset.name, source_dataset.uri, source_dataset.uuid))
+            proto_dataset = dtoolcore.create_derived_proto_dataset(
+                name=name,
+                base_uri=dtoolcore.utils.urlunparse(parsed_base_uri),
+                source_dataset=source_dataset,
+                readme_content=readme,
+                creator_username=creator_username)
+        else:
+            proto_dataset = dtoolcore.create_proto_dataset(
+                name=name,
+                base_uri=dtoolcore.utils.urlunparse(parsed_base_uri),
+                readme_content=readme,
+                creator_username=creator_username)
 
         # add items to dataset one by one
         # TODO: possibility for per-item metadata
@@ -374,7 +456,12 @@ class CreateDatasetTask(DtoolTask):
                 abspath, relpath, proto_dataset.name))
             proto_dataset.put_item(abspath, relpath)
 
+        logger.info(
+            "Created new dataset with name '{}', uri '{}', and uuid '{}'."
+            .format(proto_dataset.name, proto_dataset.uri, proto_dataset.uuid))
+
         return proto_dataset
+
 
 class FreezeDatasetTask(DtoolTask):
     """
