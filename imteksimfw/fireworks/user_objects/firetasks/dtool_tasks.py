@@ -296,7 +296,6 @@ class CreateDatasetTask(DtoolTask):
 
         name = self.get(
             "name", "dataset")
-
         name = from_fw_spec(name, fw_spec)
 
         # see https://github.com/jic-dtool/dtoolcore/blob/6aff99531d1192f86512f662caf22a6ecd2198a5/dtoolcore/utils.py#L254
@@ -473,6 +472,10 @@ class FreezeDatasetTask(DtoolTask):
         None
     Optional params:
         - uri (str): URI of dataset, default: "dataset"
+
+    Field 'uri' may also be a dict of format
+    { 'key': 'some->nested->fw_spec->key' } for looking up value within
+    fw_spec instead.
     """
     _fw_name = 'FreezeDatasetTask'
     required_params = [*DtoolTask.required_params]
@@ -484,6 +487,8 @@ class FreezeDatasetTask(DtoolTask):
         logger = logging.getLogger(__name__)
 
         uri = self.get("uri", "dataset")
+        uri = from_fw_spec(uri, fw_spec)
+
         proto_dataset = dtoolcore.ProtoDataSet.from_uri(uri)
         logger.info("Freezing dataset '{}' with URI '{}'.".format(
             proto_dataset.name, proto_dataset.uri))
@@ -531,6 +536,10 @@ class CopyDatasetTask(DtoolTask):
         - source (str): URI of source dataset, default: "dataset".
         - resume (bool): continue to copy a dataset existing already partially
             at target.
+
+    Fields 'target', 'source', and 'resume' may also be a dict of format
+    { 'key': 'some->nested->fw_spec->key' } for looking up value within
+    fw_spec instead.
     """
 
     _fw_name = 'CopyDatasetTask'
@@ -546,8 +555,14 @@ class CopyDatasetTask(DtoolTask):
         logger = logging.getLogger(__name__)
 
         source = self.get("source", "dataset")
+        source = from_fw_spec(source, fw_spec)
+
         target = self.get("target")
+        target = from_fw_spec(target, fw_spec)
+
         resume = self.get("resume", False)
+        resume = from_fw_spec(resume, fw_spec)
+
 
         src_dataset = dtoolcore.DataSet.from_uri(source)
 
