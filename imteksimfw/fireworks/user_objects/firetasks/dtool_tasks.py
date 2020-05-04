@@ -187,7 +187,7 @@ class DtoolTask(FiretaskBase):
     def run_task(self, fw_spec):
         logger = logging.getLogger(__name__)
 
-        dtool_config = self.get("dtool_config")
+        dtool_config = self.get("dtool_config", {})
         logger.debug("task spec level dtool config overrides:")
         _log_nested_dict(logger.debug, dtool_config)
 
