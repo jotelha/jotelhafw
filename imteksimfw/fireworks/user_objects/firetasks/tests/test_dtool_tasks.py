@@ -32,7 +32,8 @@ import ruamel.yaml as yaml
 import subprocess  # TODO: replace cli sub-processes with custom verify calls
 
 import dtoolcore
-from imteksimfw.fireworks.user_objects.firetasks.dtool_tasks import CreateDatasetTask, CopyDatasetTask, TemporaryOSEnviron
+from imteksimfw.fireworks.user_objects.firetasks.dtool_tasks import (
+    CreateDatasetTask, FreezeDatasetTask, CopyDatasetTask, TemporaryOSEnviron)
 
 module_dir = os.path.abspath(os.path.dirname(__file__))
 
@@ -241,10 +242,23 @@ class DtoolTasksTest(unittest.TestCase):
         logger.debug("dtool config overrides:")
         _log_nested_dict(dtool_config)
 
-        self.default_dtool_task_spec = {
+        self.default_create_dataset_task_spec = {
             'name': self._dataset_name,
             'dtool_readme_template_path': self.files["dtool_readme_template_path"],
             'dtool_config': dtool_config,
+            'stored_data': True,
+        }
+
+        self.default_freeze_dataset_task_spec = {
+            'dtool_config': dtool_config,
+            'stored_data': True,
+        }
+
+        self.default_copy_dataset_task_spec = {
+            'source': self._dataset_name,
+            'target': 'smb://test-share',
+            'dtool_config': dtool_config,
+            'stored_data': True,
         }
 
         # for k, v in dtool_config.items():
@@ -260,8 +274,17 @@ class DtoolTasksTest(unittest.TestCase):
         logger = logging.getLogger(__name__)
 
         logger.debug("Instantiate CreateDatasetTask with '{}'".format(
-            self.default_dtool_task_spec))
-        t = CreateDatasetTask(**self.default_dtool_task_spec)
+            self.default_create_dataset_task_spec))
+        t = CreateDatasetTask(**self.default_create_dataset_task_spec)
+        fw_action = t.run_task({})
+        logger.debug("FWAction:")
+        _log_nested_dict(fw_action.as_dict())
+        uri = fw_action.stored_data['uri']
+
+        logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
+            {'uri': uri, **self.default_freeze_dataset_task_spec}))
+        t = FreezeDatasetTask(
+            uri=uri, **self.default_freeze_dataset_task_spec)
         fw_action = t.run_task({})
         logger.debug("FWAction:")
         _log_nested_dict(fw_action.as_dict())
@@ -319,13 +342,22 @@ class DtoolTasksTest(unittest.TestCase):
         logger = logging.getLogger(__name__)
 
         t = CreateDatasetTask(
-            **self.default_dtool_task_spec,
+            **self.default_create_dataset_task_spec,
             metadata={
                 'metadata': {
                     'step': 'static metadata test'
                 }
             }
         )
+        fw_action = t.run_task({})
+        logger.debug("FWAction:")
+        _log_nested_dict(fw_action.as_dict())
+        uri = fw_action.stored_data['uri']
+
+        logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
+            {'uri': uri, **self.default_freeze_dataset_task_spec}))
+        t = FreezeDatasetTask(
+            uri=uri, **self.default_freeze_dataset_task_spec)
         fw_action = t.run_task({})
         logger.debug("FWAction:")
         _log_nested_dict(fw_action.as_dict())
@@ -368,7 +400,7 @@ class DtoolTasksTest(unittest.TestCase):
         logger = logging.getLogger(__name__)
 
         t = CreateDatasetTask(
-            **self.default_dtool_task_spec,
+            **self.default_create_dataset_task_spec,
             metadata_key='deeply->deeply->nested',
         )
         fw_action = t.run_task(  # insert some fw_spec into metadata
@@ -384,6 +416,15 @@ class DtoolTasksTest(unittest.TestCase):
                 }
             }
         )
+        logger.debug("FWAction:")
+        _log_nested_dict(fw_action.as_dict())
+        uri = fw_action.stored_data['uri']
+
+        logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
+            {'uri': uri, **self.default_freeze_dataset_task_spec}))
+        t = FreezeDatasetTask(
+            uri=uri, **self.default_freeze_dataset_task_spec)
+        fw_action = t.run_task({})
         logger.debug("FWAction:")
         _log_nested_dict(fw_action.as_dict())
         uri = fw_action.stored_data['uri']
@@ -425,7 +466,7 @@ class DtoolTasksTest(unittest.TestCase):
         logger = logging.getLogger(__name__)
 
         t = CreateDatasetTask(
-            **self.default_dtool_task_spec,
+            **self.default_create_dataset_task_spec,
             metadata={
                 'metadata': {  # insert some task-level specs into metadata
                     'step': 'static and dynamic metadata test',  #
@@ -448,6 +489,15 @@ class DtoolTasksTest(unittest.TestCase):
                 }
             }
         )
+        logger.debug("FWAction:")
+        _log_nested_dict(fw_action.as_dict())
+        uri = fw_action.stored_data['uri']
+
+        logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
+            {'uri': uri, **self.default_freeze_dataset_task_spec}))
+        t = FreezeDatasetTask(
+            uri=uri, **self.default_freeze_dataset_task_spec)
+        fw_action = t.run_task({})
         logger.debug("FWAction:")
         _log_nested_dict(fw_action.as_dict())
         uri = fw_action.stored_data['uri']
@@ -516,13 +566,11 @@ class DtoolTasksTest(unittest.TestCase):
         self.test_create_dataset_task_run()
 
         # configure within dtool.json
-        target = 'smb://test-share'
+        # target = 'smb://test-share'
 
         logger.debug("Instantiate CopyDatasetTask.")
         t = CopyDatasetTask(
-            source=self._dataset_name,
-            target=target,
-            dtool_config=self.default_dtool_task_spec['dtool_config'])
+            **self.default_copy_dataset_task_spec)
 
         fw_action = t.run_task({})
         logger.debug("FWAction:")
