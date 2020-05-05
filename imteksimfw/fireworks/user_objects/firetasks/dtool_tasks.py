@@ -3,6 +3,7 @@
 from __future__ import unicode_literals
 
 from abc import abstractmethod
+from contextlib import ExitStack
 from typing import List
 
 import collections
@@ -23,6 +24,7 @@ import dtool_create.dataset
 
 from fireworks.core.firework import FiretaskBase, FWAction
 from fireworks.utilities.dict_mods import get_nested_dict_value
+from fireworks.utilities.fw_serializers import ENCODING_PARAMS
 
 
 __author__ = 'Johannes Laurin Hoermann'
@@ -120,6 +122,35 @@ def _get_readme_template(fpath=None):
     return readme_template
 
 
+class LoggingContext():
+    """Modifies logging within context."""
+    def __init__(self, logger=None, handler=None, level=None, close=False):
+        self.logger = logger
+        self.level = level
+        self.handler = handler
+        self.close = close
+
+    def __enter__(self):
+        """Prepare log output streams."""
+        if self.logger is None:
+            # temporarily modify root logger
+            self.logger = logging.getLogger('')
+        if self.level is not None:
+            self.old_level = self.logger.level
+            self.logger.setLevel(self.level)
+        if self.handler:
+            self.logger.addHandler(self.handler)
+
+    def __exit__(self, et, ev, tb):
+        if self.level is not None:
+            self.logger.setLevel(self.old_level)
+        if self.handler:
+            self.logger.removeHandler(self.handler)
+        if self.handler and self.close:
+            self.handler.close()
+        # implicit return of None => don't swallow exceptions
+
+
 class TemporaryOSEnviron:
     """Preserve original os.environ context manager."""
 
@@ -134,11 +165,11 @@ class TemporaryOSEnviron:
 
         if self._insertions:
             for k, v in self._insertions.items():
+                logger.debug("Inject env var '{}' = '{}'".format(k, v))
                 os.environ[k] = str(v)
 
         logger.debug("Initial os.environ:")
         _log_nested_dict(logger.debug, os.environ)
-
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Restore backed up os.environ."""
@@ -160,8 +191,6 @@ class DtoolTask(FiretaskBase):
         - dtool_config_key (str): key to dict within fw_spec, override
             defaults in $HOME/.config/dtool/dtool.json and static dtool_config
             task spec. Default: None.
-        - stored_data (bool, default: False): put handled dataset properties
-            into FWAction.stored_data
         - output (str): spec key that will be used to pass
             the handled dataset's properties to child fireworks. Default: None
         - dict_mod (str, default: '_set'): how to insert handled dataset's
@@ -169,6 +198,11 @@ class DtoolTask(FiretaskBase):
         - propagate (bool, default:None): if True, then set the
             FWAction 'propagate' flag and propagate updated fw_spec not only to
             direct children, but to all descendants down to wokflow's leaves.
+        - stored_data (bool, default: False): put handled dataset properties
+            into FWAction.stored_data
+        - store_stdlog (bool, default: False): insert log output into database
+        - stdlog_file (str, Default: NameOfTaskClass.log): print log to file
+        - loglevel (str, Default: logging.INFO): loglevel for this task
     """
     _fw_name = 'DtoolTask'
     required_params: List[str] = []
@@ -178,41 +212,65 @@ class DtoolTask(FiretaskBase):
         "stored_data",
         "output",
         "dict_mod",
-        "propagate"]
+        "propagate",
+        "stdlog_file",
+        "store_stdlog",
+        "loglevel"]
 
     @abstractmethod
     def _run_task_internal(self, fw_spec) -> dtoolcore.DataSet:
         ...
 
     def run_task(self, fw_spec):
-        logger = logging.getLogger(__name__)
-
-        dtool_config = self.get("dtool_config", {})
-        logger.debug("task spec level dtool config overrides:")
-        _log_nested_dict(logger.debug, dtool_config)
-
-        # fw_spec dynamic dtool_config overrides
-        dtool_config_key = self.get("dtool_config_key")
-        dtool_config_update = {}
-        if dtool_config_key is not None:
-            try:
-                dtool_config_update = get_nested_dict_value(
-                    fw_spec, dtool_config_key)
-                logger.debug("fw_spec level dtool config overrides:")
-                _log_nested_dict(logger.debug, dtool_config_update)
-            except Exception:  # key not found
-                logger.warn("{} not found within fw_spec, ignored.".format(
-                    dtool_config_key))
-        dtool_config.update(dtool_config_update)
-        logger.debug("effective dtool config overrides:")
-        _log_nested_dict(logger.debug, dtool_config)
-
         stored_data = self.get('stored_data', False)
         output_key = self.get('output', None)
         dict_mod = self.get('dict_mod', '_set')
         propagate = self.get('propagate', False)
 
-        with TemporaryOSEnviron(env=dtool_config):
+        dtool_config = self.get("dtool_config", {})
+        dtool_config_key = self.get("dtool_config_key")
+
+        stdlog_file = self.get('stdlog_file', '{}.log'.format(self._fw_name))
+        store_stdlog = self.get('store_stdlog', False)
+
+        loglevel = self.get('loglevel', logging.INFO)
+
+        with ExitStack() as stack:
+
+            if store_stdlog:
+                stdlog_stream = io.StringIO()
+                logh = logging.StreamHandler(stdlog_stream)
+                stack.enter_context(
+                    LoggingContext(handler=logh, level=loglevel, close=False))
+
+            # logging to dedicated log file if desired
+            if stdlog_file:
+                logfh = logging.FileHandler(stdlog_file, mode='a', **ENCODING_PARAMS)
+                stack.enter_context(
+                    LoggingContext(handler=logfh, level=loglevel, close=True))
+
+            logger = logging.getLogger(__name__)
+
+            logger.debug("task spec level dtool config overrides:")
+            _log_nested_dict(logger.debug, dtool_config)
+
+            # fw_spec dynamic dtool_config overrides
+            dtool_config_update = {}
+            if dtool_config_key is not None:
+                try:
+                    dtool_config_update = get_nested_dict_value(
+                        fw_spec, dtool_config_key)
+                    logger.debug("fw_spec level dtool config overrides:")
+                    _log_nested_dict(logger.debug, dtool_config_update)
+                except Exception:  # key not found
+                    logger.warning("{} not found within fw_spec, ignored.".format(
+                        dtool_config_key))
+            dtool_config.update(dtool_config_update)
+            logger.debug("effective dtool config overrides:")
+            _log_nested_dict(logger.debug, dtool_config)
+
+            stack.enter_context(TemporaryOSEnviron(env=dtool_config))
+
             dataset = self._run_task_internal(fw_spec)
 
         output = {
@@ -220,6 +278,10 @@ class DtoolTask(FiretaskBase):
             'uuid': dataset.uuid,
             'name': dataset.name,
         }
+
+        if store_stdlog:
+            stdlog_stream.flush()
+            output['stdlog'] = stdlog_stream.getvalue()
 
         fw_action = FWAction()
 
