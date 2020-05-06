@@ -326,12 +326,37 @@ env:
     - 'import site, sys, os, importlib, builtins'
     - 'builtins.module = importlib.import_module("imteksimfw.utilities.env_modules_python").module'
     - 'module("purge")'
+    - 'module("list")'
     - 'module("use",os.path.join(os.environ["PROJECT"],"common","juwels","easybuild","otherstages"))'
     - 'module("load","Stages/2019a","Intel/2019.3.199-GCC-8.3.0","IntelMPI/2019.3.199")'
     - 'module("load","ASE/3.17.0-Python-3.6.8")'
-    - 'module("load","MDAnalysis/0.20.1-Python-3.6.8")'
     - 'module("load","imteksimcs/devel-local-Python-3.6.8")'
     - 'module("load","imteksimpyenv/devel-Python-3.6.8")'
+    - 'module("list")'
+    - 'for d in list(set(os.environ["PYTHONPATH"].split(":")) - set(sys.path)): site.addsitedir(d)'
+    # this last line is nasty
+
+  mdanalysis:
+    init:
+    - 'import site, sys, os, importlib, builtins'
+    - 'builtins.module = importlib.import_module("imteksimfw.utilities.env_modules_python").module'
+    - 'module("purge")'
+    - 'module("list")'
+    - 'module("use",os.path.join(os.environ["PROJECT"],"common","juwels","easybuild","otherstages"))'
+    - 'module("load","Stages/2019a","Intel/2019.3.199-GCC-8.3.0","IntelMPI/2019.3.199")'
+    - 'module("load","MDAnalysis/0.20.1-Python-3.6.8")'
+    - 'module("list")'
+    - 'for d in list(set(os.environ["PYTHONPATH"].split(":")) - set(sys.path)): site.addsitedir(d)'
+    # this last line is nasty
+
+  ase:
+    init:
+    - 'import site, sys, os, importlib, builtins'
+    - 'builtins.module = importlib.import_module("imteksimfw.utilities.env_modules_python").module'
+    - 'module("purge")'
+    - 'module("use",os.path.join(os.environ["PROJECT"],"common","juwels","easybuild","otherstages"))'
+    - 'module("load","Stages/2019a","Intel/2019.3.199-GCC-8.3.0","IntelMPI/2019.3.199")'
+    - 'module("load","ASE/3.17.0-Python-3.6.8")'
     - 'module("list")'
     - 'for d in list(set(os.environ["PYTHONPATH"].split(":")) - set(sys.path)): site.addsitedir(d)'
     # this last line is nasty
