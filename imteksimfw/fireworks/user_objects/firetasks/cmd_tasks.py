@@ -632,9 +632,9 @@ class EnvTask(FiretaskBase):
             # files and database, depending on flags.
 
             # 11th context: allow temporary os.environ modifications within block
-            # stack.enter_context(TemporaryOSEnviron())
+            stack.enter_context(TemporaryOSEnviron())
             # 12th context: allow temporary sys.path modifications within block
-            # stack.enter_context(TemporarySysPath())
+            stack.enter_context(TemporarySysPath())
 
             # for a variable amount of contexts:
             # for mgr in context_managers:
