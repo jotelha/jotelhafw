@@ -433,53 +433,6 @@ class EnvTask(FiretaskBase):
         if self._py_hist_logger is not None:
             self._py_hist_logger.info(line)
 
-    # TODO: would like to use these _parse_*** functions
-    # as 'macros', i.e. executing everything in their
-    # caller's frame, not sure how to.
-    def _parse_global_init_block(self, fw_spec):
-        """Parse global init block."""
-        # _fw_env : env : init may provide a list of python commans
-        # to run, i.e. for module env initialization
-        if "init" in fw_spec["_fw_env"][self.env]:
-            init = fw_spec["_fw_env"][self.env]["init"]
-            if isinstance(init, str):
-                init = [init]
-            assert isinstance(init, list)
-            for cmd in init:
-                self.logger.info("Execute '{:s}'.".format(cmd))
-                self._py_hist_append(cmd)
-                exec(cmd)
-
-    def _parse_global_env_block(self, fw_spec):
-        """Parse global envronment block."""
-        # per default, process inherits current environment
-        # self.modenv = os.environ.copy()
-        # modify environment before call if desired
-        if "env" in fw_spec["_fw_env"][self.env]:
-            env_dict = fw_spec["_fw_env"][self.env]["env"]
-            if not isinstance(env_dict, dict):
-                raise ValueError(
-                    "type({}) = {} of 'env' not accepted, must be dict!"
-                        .format(env_dict, type(env_dict)))
-
-            # so far, only simple overrides, no pre- or appending
-            for i, (key, value) in enumerate(env_dict.items()):
-                self.logger.info("Set env var '{:s}' = '{:s}'.".format(
-                    key, value))
-                self._py_hist_append('os.environ["{:s}"] = "{:s}"'.format(
-                    str(key), str(value)))
-                os.environ[str(key)] = str(value)
-
-    def _parse_global_block(self, fw_spec):
-        # in case of a specified worker environment
-        if self.env and "_fw_env" in fw_spec \
-                and self.env in fw_spec["_fw_env"]:
-            self.logger.info("Found {:s}-specific block '{}' within worker file."
-                .format(self.env, fw_spec["_fw_env"]))
-
-            self._parse_global_init_block(fw_spec)
-            self._parse_global_env_block(fw_spec)
-
     def run_task(self, fw_spec):
         """Run a sub-process. Modify environment if desired."""
         if self.get('use_global_spec'):
@@ -852,132 +805,184 @@ class CmdTask(EnvTask, ScriptTask):
         """List of arguments (including command) as list of str only."""
         return [a if isinstance(a, str) else str(a) for a in self._args]
 
-    def _parse_cmd_init_block(self, fw_spec):
-        """Parse per-command init block."""
-        cmd_block = fw_spec["_fw_env"][self.env]["cmd"][self.cmd]
-        if "init" in cmd_block:
-            init = cmd_block["init"]
-            if isinstance(init, str):
-                init = [init]
-            assert isinstance(init, list), "'init' must be str or list"
-            for cmd in init:
-                self.logger.info("Execute '{:s}'.".format(cmd))
-                self._py_hist_append(cmd)
-                exec(cmd)
+    @trace_method
+    def _run_task_internal(self, fw_spec):
+        """Run task."""
+        stdout = subprocess.PIPE # if self.store_stdout or self.stdout_file else None
+        stderr = subprocess.PIPE # if self.store_stderr or self.stderr_file else None
 
-    def _parse_cmd_substitute_block(self, fw_spec):
-        """Parse per-command substitute block."""
-        cmd_block = fw_spec["_fw_env"][self.env]["cmd"][self.cmd]
-        if "substitute" in cmd_block:
-            substitute = cmd_block["substitute"]
-            assert isinstance(substitute, str), "substitute must be str"
-            self.logger.info("Substitute '{:s}' with '{:s}'.".format(
-                self.cmd, substitute))
-            self._args.append(substitute)
-        else:  # otherwise just use command as specified
-            self.logger.info("No substitute for command '{:s}'.".format(
-                self.cmd))
-            self._args.append(self.cmd)
+        # get the standard in and run task internally
+        if self.stdin_file:
+            stdin = open(self.stdin_file, 'r', **ENCODING_PARAMS)
+        elif self.stdin_key:
+            stdin_str = fw_spec[self.stdin_key]
+            try:
+                stdin_list = [stdin_str] if isinstance(stdin_str, str) \
+                    else [str(line) for line in stdin_str]
+            except:
+                raise ValueError(("stdin_key '{}' must point to either string"
+                                  " or list of strings, not '{}'.")
+                                  .format(self.stdin_key, stdin_str))
 
-    def _parse_cmd_prefix_block(self, fw_spec):
-        """Parse per-command prefix block."""
-        cmd_block = fw_spec["_fw_env"][self.env]["cmd"][self.cmd]
-        # prepend machine-specific prefixes to command
-        if "prefix" in cmd_block:
-            prefix_list = cmd_block["prefix"]
-            if not isinstance(prefix_list, list):
-                prefix_list = [prefix_list]
+            stdin = subprocess.PIPE
+        else:
+            stdin = None
 
-            processed_prefix_list = []
-            for i, prefix in enumerate(prefix_list):
-                processed_prefix = []
-                # a prefix dict allow for something like this:
-                #    cmd:
-                #      lmp:
-                #        init:   'module("load","lammps")'
-                #        prefix: [ 'mpirun', { 'eval': 'os.environ["MPIRUN_OPTIONS"]' } ]
-                if isinstance(prefix, dict):
-                    # special treatment desired for this prefix
-                    if "eval" in prefix:
-                        self.logger.info("Evaluate prefix '{:s}'.".format(
-                            ' '.join(prefix["eval"])))
-                        # evaluate prefix in current context
-                        processed_prefix = eval(prefix["eval"])
-                        try:
-                            processed_prefix = processed_prefix.decode("utf-8")
-                        except AttributeError:
-                            pass
-                        if isinstance(processed_prefix, str):
-                            processed_prefix = processed_prefix.split()
-                        else:
-                            raise ValueError(
-                                "Output {} of prefix #{} evaluation not accepted!".format(
-                                    processed_prefix, i))
-                    else:
-                        raise ValueError(
-                            "Formatting {} of prefix #{} not accepted!".format(
-                                prefix, i))
-                elif isinstance(prefix, str):
-                    # prefix is string, not much to do, split & prepend
-                    processed_prefix = prefix.split()
-                else:
-                    raise ValueError(
-                        "type({}) = {} of prefix #{} not accepted!".format(
-                            prefix, type(prefix), i))
+        ### START WRITING PY_HIST
+        self._py_hist_append('import os')
+        self._py_hist_append('import subprocess')
 
-                if not isinstance(processed_prefix, list):
-                    processed_prefix = [processed_prefix]
-
-                self.logger.info("Prepend prefix '{:s}'.".format(
-                    ' '.join(processed_prefix)))
-                processed_prefix_list.extend(processed_prefix)
-
-            self._args = processed_prefix_list + self._args  # concat two lists
-
-    def _parse_cmd_env_block(self, fw_spec):
-        """Parse command-specific environment block."""
-        # per default, process inherits current environment
-
-        cmd_block = fw_spec["_fw_env"][self.env]["cmd"][self.cmd]
-        # modify environment before call if desired
-        if "env" in cmd_block:
-            env_dict = cmd_block["env"]
-            if not isinstance(env_dict, dict):
-                raise ValueError(
-                    "type({}) = {} of 'env' not accepted, must be dict!"
-                    .format(env_dict, type(env_dict)))
-
-            # so far, only simple overrides, no pre- or appending
-            for i, (key, value) in enumerate(env_dict.items()):
-                self.logger.info("Set env var '{:s}' = '{:s}'.".format(
-                    key, value))
-                self._py_hist_append('os.environ["{:s}"] = "{:s}"'.format(
-                    str(key), str(value)))
-                os.environ[str(key)] = str(value)
-
-    def _parse_cmd_block(self, fw_spec):
-        """Parse command-specific environment block."""
-        if "cmd" in fw_spec["_fw_env"][self.env] \
-                and self.cmd in fw_spec["_fw_env"][self.env]["cmd"]:
-            self.logger.info("Found {:s}-specific block '{}' within worker file."
-                .format(self.cmd, fw_spec["_fw_env"][self.env]["cmd"][self.cmd]))
-            # same as above, evaluate command-specific initialization code
-            self._parse_cmd_init_block(fw_spec)
-            self._parse_cmd_substitute_block(fw_spec)
-            self._parse_cmd_prefix_block(fw_spec)
-            self._parse_cmd_env_block(fw_spec)
-        else:  # no command-specific expansion in environment, use as is
-            self._args.append(self.cmd)
-
-    def _parse_args(self, fw_spec):
         self._args = []
         # in case of a specified worker environment
-        self._parse_global_block(fw_spec)
+
+        # in case of a specified worker environment
+        if self.env and "_fw_env" in fw_spec \
+                and self.env in fw_spec["_fw_env"]:
+            self.logger.info("Found {:s}-specific block '{}' within worker file."
+                .format(self.env, fw_spec["_fw_env"]))
+
+            # """Parse global init block."""
+            # _fw_env : env : init may provide a list of python commans
+            # to run, i.e. for module env initialization
+            if "init" in fw_spec["_fw_env"][self.env]:
+                init = fw_spec["_fw_env"][self.env]["init"]
+                if isinstance(init, str):
+                    init = [init]
+                assert isinstance(init, list)
+                for cmd in init:
+                    self.logger.info("Execute '{:s}'.".format(cmd))
+                    self._py_hist_append(cmd)
+                    exec(cmd)
+
+            # """Parse global envronment block."""
+            # per default, process inherits current environment
+            # self.modenv = os.environ.copy()
+            # modify environment before call if desired
+            if "env" in fw_spec["_fw_env"][self.env]:
+                env_dict = fw_spec["_fw_env"][self.env]["env"]
+                if not isinstance(env_dict, dict):
+                    raise ValueError(
+                        "type({}) = {} of 'env' not accepted, must be dict!"
+                            .format(env_dict, type(env_dict)))
+
+                # so far, only simple overrides, no pre- or appending
+                for i, (key, value) in enumerate(env_dict.items()):
+                    self.logger.info("Set env var '{:s}' = '{:s}'.".format(
+                        key, value))
+                    self._py_hist_append('os.environ["{:s}"] = "{:s}"'.format(
+                        str(key), str(value)))
+                    os.environ[str(key)] = str(value)
+
         if self.env and "_fw_env" in fw_spec \
                 and self.env in fw_spec["_fw_env"]:
             # check whether there is any machine-specific "expansion" for
             # the command head
-            self._parse_cmd_block(fw_spec)
+            """Parse command-specific environment block."""
+            if "cmd" in fw_spec["_fw_env"][self.env] \
+                    and self.cmd in fw_spec["_fw_env"][self.env]["cmd"]:
+                self.logger.info("Found {:s}-specific block '{}' within worker file."
+                    .format(self.cmd, fw_spec["_fw_env"][self.env]["cmd"][self.cmd]))
+                # same as above, evaluate command-specific initialization code
+                """Parse per-command init block."""
+                cmd_block = fw_spec["_fw_env"][self.env]["cmd"][self.cmd]
+                if "init" in cmd_block:
+                    init = cmd_block["init"]
+                    if isinstance(init, str):
+                        init = [init]
+                    assert isinstance(init, list), "'init' must be str or list"
+                    for cmd in init:
+                        self.logger.info("Execute '{:s}'.".format(cmd))
+                        self._py_hist_append(cmd)
+                        exec(cmd)
+
+                """Parse per-command substitute block."""
+                cmd_block = fw_spec["_fw_env"][self.env]["cmd"][self.cmd]
+                if "substitute" in cmd_block:
+                    substitute = cmd_block["substitute"]
+                    assert isinstance(substitute, str), "substitute must be str"
+                    self.logger.info("Substitute '{:s}' with '{:s}'.".format(
+                        self.cmd, substitute))
+                    self._args.append(substitute)
+                else:  # otherwise just use command as specified
+                    self.logger.info("No substitute for command '{:s}'.".format(
+                        self.cmd))
+                    self._args.append(self.cmd)
+
+                """Parse per-command prefix block."""
+                cmd_block = fw_spec["_fw_env"][self.env]["cmd"][self.cmd]
+                # prepend machine-specific prefixes to command
+                if "prefix" in cmd_block:
+                    prefix_list = cmd_block["prefix"]
+                    if not isinstance(prefix_list, list):
+                        prefix_list = [prefix_list]
+
+                    processed_prefix_list = []
+                    for i, prefix in enumerate(prefix_list):
+                        processed_prefix = []
+                        # a prefix dict allow for something like this:
+                        #    cmd:
+                        #      lmp:
+                        #        init:   'module("load","lammps")'
+                        #        prefix: [ 'mpirun', { 'eval': 'os.environ["MPIRUN_OPTIONS"]' } ]
+                        if isinstance(prefix, dict):
+                            # special treatment desired for this prefix
+                            if "eval" in prefix:
+                                self.logger.info("Evaluate prefix '{:s}'.".format(
+                                    ' '.join(prefix["eval"])))
+                                # evaluate prefix in current context
+                                processed_prefix = eval(prefix["eval"])
+                                try:
+                                    processed_prefix = processed_prefix.decode("utf-8")
+                                except AttributeError:
+                                    pass
+                                if isinstance(processed_prefix, str):
+                                    processed_prefix = processed_prefix.split()
+                                else:
+                                    raise ValueError(
+                                        "Output {} of prefix #{} evaluation not accepted!".format(
+                                            processed_prefix, i))
+                            else:
+                                raise ValueError(
+                                    "Formatting {} of prefix #{} not accepted!".format(
+                                        prefix, i))
+                        elif isinstance(prefix, str):
+                            # prefix is string, not much to do, split & prepend
+                            processed_prefix = prefix.split()
+                        else:
+                            raise ValueError(
+                                "type({}) = {} of prefix #{} not accepted!".format(
+                                    prefix, type(prefix), i))
+
+                        if not isinstance(processed_prefix, list):
+                            processed_prefix = [processed_prefix]
+
+                        self.logger.info("Prepend prefix '{:s}'.".format(
+                            ' '.join(processed_prefix)))
+                        processed_prefix_list.extend(processed_prefix)
+
+                    self._args = processed_prefix_list + self._args  # concat two lists
+
+                """Parse command-specific environment block."""
+                # per default, process inherits current environment
+
+                cmd_block = fw_spec["_fw_env"][self.env]["cmd"][self.cmd]
+                # modify environment before call if desired
+                if "env" in cmd_block:
+                    env_dict = cmd_block["env"]
+                    if not isinstance(env_dict, dict):
+                        raise ValueError(
+                            "type({}) = {} of 'env' not accepted, must be dict!"
+                            .format(env_dict, type(env_dict)))
+
+                    # so far, only simple overrides, no pre- or appending
+                    for i, (key, value) in enumerate(env_dict.items()):
+                        self.logger.info("Set env var '{:s}' = '{:s}'.".format(
+                            key, value))
+                        self._py_hist_append('os.environ["{:s}"] = "{:s}"'.format(
+                            str(key), str(value)))
+                        os.environ[str(key)] = str(value)
+            else:  # no command-specific expansion in environment, use as is
+                self._args.append(self.cmd)
         elif "_fw_env" in fw_spec and self.cmd in fw_spec["_fw_env"]:
             # check whether there is any desired command and whether there
             # exists a machine-specific "alias"
@@ -1006,35 +1011,6 @@ class CmdTask(EnvTask, ScriptTask):
         self.logger.info("Built command '{:s}'.".format(
             ' '.join(self.args)))
         self.logger.debug("Process environment '{}'.".format(os.environ))
-
-    @trace_method
-    def _run_task_internal(self, fw_spec):
-        """Run task."""
-        stdout = subprocess.PIPE # if self.store_stdout or self.stdout_file else None
-        stderr = subprocess.PIPE # if self.store_stderr or self.stderr_file else None
-
-        # get the standard in and run task internally
-        if self.stdin_file:
-            stdin = open(self.stdin_file, 'r', **ENCODING_PARAMS)
-        elif self.stdin_key:
-            stdin_str = fw_spec[self.stdin_key]
-            try:
-                stdin_list = [stdin_str] if isinstance(stdin_str, str) \
-                    else [str(line) for line in stdin_str]
-            except:
-                raise ValueError(("stdin_key '{}' must point to either string"
-                                  " or list of strings, not '{}'.")
-                                  .format(self.stdin_key, stdin_str))
-
-            stdin = subprocess.PIPE
-        else:
-            stdin = None
-
-        ### START WRITING PY_HIST
-        self._py_hist_append('import os')
-        self._py_hist_append('import subprocess')
-
-        self._parse_args(fw_spec)
 
         kwargs = {}
         if self.shell_exe:
@@ -1327,10 +1303,48 @@ class PyEnvTask(EnvTask, PyTask):
             func = getattr(builtins, toks[0])
         return func
 
-    def _parse_local_init_block(self, fw_spec):
-        """Parse task-internal preceding code block."""
-        # _fw_env : env : init may provide a list of python commans
-        # to run, i.e. for module env initialization
+    @trace_method
+    def _run_task_internal(self, fw_spec):
+        # run snippet
+        # in case of a specified worker environment
+        if self.env and "_fw_env" in fw_spec \
+                and self.env in fw_spec["_fw_env"]:
+            self.logger.info("Found {:s}-specific block '{}' within worker file."
+                .format(self.env, fw_spec["_fw_env"]))
+
+            # """Parse global init block."""
+            # _fw_env : env : init may provide a list of python commans
+            # to run, i.e. for module env initialization
+            if "init" in fw_spec["_fw_env"][self.env]:
+                init = fw_spec["_fw_env"][self.env]["init"]
+                if isinstance(init, str):
+                    init = [init]
+                assert isinstance(init, list)
+                for cmd in init:
+                    self.logger.info("Execute '{:s}'.".format(cmd))
+                    self._py_hist_append(cmd)
+                    exec(cmd)
+
+            # """Parse global envronment block."""
+            # per default, process inherits current environment
+            # self.modenv = os.environ.copy()
+            # modify environment before call if desired
+            if "env" in fw_spec["_fw_env"][self.env]:
+                env_dict = fw_spec["_fw_env"][self.env]["env"]
+                if not isinstance(env_dict, dict):
+                    raise ValueError(
+                        "type({}) = {} of 'env' not accepted, must be dict!"
+                            .format(env_dict, type(env_dict)))
+
+                # so far, only simple overrides, no pre- or appending
+                for i, (key, value) in enumerate(env_dict.items()):
+                    self.logger.info("Set env var '{:s}' = '{:s}'.".format(
+                        key, value))
+                    self._py_hist_append('os.environ["{:s}"] = "{:s}"'.format(
+                        str(key), str(value)))
+                    os.environ[str(key)] = str(value)
+
+        # """Parse task-internal preceding code block."""
         if self.init:
             init = self.init
             if isinstance(init, str):
@@ -1340,12 +1354,6 @@ class PyEnvTask(EnvTask, PyTask):
                 self.logger.info("Execute '{:s}'.".format(cmd))
                 self._py_hist_append(cmd)
                 exec(cmd)
-
-    @trace_method
-    def _run_task_internal(self, fw_spec):
-        # run snippet
-        self._parse_global_block(fw_spec)
-        self._parse_local_init_block(fw_spec)
 
         func = self._get_func(fw_spec)
 
