@@ -454,7 +454,7 @@ class EnvTask(FiretaskBase):
                 error, p_traceback = p.exception
                 raise ChildProcessError(p_traceback)
         # this loop will deadlock for any child that never raises
-        # an exception and does not queue anythong
+        # an exception and does not queue anything
 
         # child has finished without exception
         # child must always return fw_action

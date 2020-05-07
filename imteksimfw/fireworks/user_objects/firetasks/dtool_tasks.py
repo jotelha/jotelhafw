@@ -13,9 +13,7 @@ import glob
 import io
 import json
 import logging
-import multiprocessing  # run task as child process to avoid side effects
 import os
-import traceback  # forward exception from child process to parent process
 
 from ruamel.yaml import YAML
 
@@ -30,6 +28,8 @@ from fireworks.core.firework import FiretaskBase, FWAction
 from fireworks.utilities.dict_mods import get_nested_dict_value
 from fireworks.utilities.fw_serializers import ENCODING_PARAMS
 
+from imteksimfw.fireworks.utilities.multiprocessing import RunAsChildProcessTask
+from imteksimfw.fireworks.utilities.logging import LoggingContext
 
 __author__ = 'Johannes Laurin Hoermann'
 __copyright__ = 'Copyright 2020, IMTEK Simulation, University of Freiburg'
@@ -126,36 +126,6 @@ def _get_readme_template(fpath=None):
 
     return readme_template
 
-
-class LoggingContext():
-    """Modifies logging within context."""
-    def __init__(self, logger=None, handler=None, level=None, close=False):
-        self.logger = logger
-        self.level = level
-        self.handler = handler
-        self.close = close
-
-    def __enter__(self):
-        """Prepare log output streams."""
-        if self.logger is None:
-            # temporarily modify root logger
-            self.logger = logging.getLogger('')
-        if self.level is not None:
-            self.old_level = self.logger.level
-            self.logger.setLevel(self.level)
-        if self.handler:
-            self.logger.addHandler(self.handler)
-
-    def __exit__(self, et, ev, tb):
-        if self.level is not None:
-            self.logger.setLevel(self.old_level)
-        if self.handler:
-            self.logger.removeHandler(self.handler)
-        if self.handler and self.close:
-            self.handler.close()
-        # implicit return of None => don't swallow exceptions
-
-
 class TemporaryOSEnviron:
     """Preserve original os.environ context manager."""
 
@@ -186,37 +156,7 @@ class TemporaryOSEnviron:
         _log_nested_dict(logger.debug, os.environ)
 
 
-# in order to make sure any modifications to the environment within dtool
-# won't pollute Fireworks process environmnet, run task in separate process
-# https://stackoverflow.com/questions/19924104/python-multiprocessing-handling-child-errors-in-parent
-class Process(multiprocessing.Process):
-    """
-    Class which returns child Exceptions to Parent.
-    https://stackoverflow.com/a/33599967/4992248
-    """
-
-    def __init__(self, *args, **kwargs):
-        multiprocessing.Process.__init__(self, *args, **kwargs)
-        self._parent_conn, self._child_conn = multiprocessing.Pipe()
-        self._exception = None
-
-    def run(self):
-        try:
-            multiprocessing.Process.run(self)
-            self._child_conn.send(None)
-        except Exception as e:
-            tb = traceback.format_exc()
-            self._child_conn.send((e, tb))
-            raise e  # You can still rise this exception if you need to
-
-    @property
-    def exception(self):
-        if self._parent_conn.poll():
-            self._exception = self._parent_conn.recv()
-        return self._exception
-
-
-class DtoolTask(FiretaskBase):
+class DtoolTask(RunAsChildProcessTask):
     """
     A dtool task ABC.
 
@@ -242,8 +182,9 @@ class DtoolTask(FiretaskBase):
         - loglevel (str, Default: logging.INFO): loglevel for this task
     """
     _fw_name = 'DtoolTask'
-    required_params: List[str] = []
+    required_params = [*RunAsChildProcessTask.required_params]
     optional_params = [
+        *RunAsChildProcessTask.optional_params,
         "dtool_config",
         "dtool_config_key",
         "stored_data",
@@ -256,35 +197,10 @@ class DtoolTask(FiretaskBase):
 
     @abstractmethod
     def _run_task_internal(self, fw_spec) -> dtoolcore.DataSet:
+        """Derivatives implement their functionality here."""
         ...
 
-    def run_task(self, fw_spec):
-        """Spawn child process to assure my environment stays untouched."""
-        q = multiprocessing.Queue()
-        p = Process(target=self._run_task_as_child_process, args=(q, fw_spec,))
-
-        p.start()
-
-        # wait for child to queue fw_action object and
-        # check whether child raises exception
-        while q.empty():
-            # if child raises exception, then it has terminated
-            # before queueing any fw_action object
-            if p.exception:
-                error, p_traceback = p.exception
-                raise ChildProcessError(p_traceback)
-        # this loop will deadlock for any child that never raises
-        # an exception and does not queue anything
-
-        # queue only used for one transfer of
-        # return fw_action, should thus never deadlock.
-        fw_action = q.get()
-        # if we reach this line without the child
-        # queueing anything, then process will deadlock.
-        p.join()
-        return fw_action
-
-    def _run_task_as_child_process(self, q, fw_spec):
+    def _run_task_as_child_process(self, fw_spec, q, e=None):
         """q is a Queue used to return fw_action."""
         stored_data = self.get('stored_data', False)
         output_key = self.get('output', None)
@@ -369,7 +285,7 @@ class CreateDatasetTask(DtoolTask):
     """
     A Firetask to create a dtool data set.
 
-    This tast extends the basic DtoolTask parameters by
+    This task extends the basic DtoolTask parameters by
 
     Required params:
         None
