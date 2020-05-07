@@ -8,12 +8,14 @@ from typing import List
 
 import collections
 import datetime
-import getpass
+import getpass  # get system username for dtool metadata
 import glob
-import logging
 import io
 import json
+import logging
+import multiprocessing  # run task as child process to avoid side effects
 import os
+import traceback  # forward exception from child process to parent process
 
 from ruamel.yaml import YAML
 
@@ -21,6 +23,8 @@ from ruamel.yaml import YAML
 import dtoolcore
 import dtoolcore.utils
 import dtool_create.dataset
+
+from fireworks.fw_config import FW_LOGGING_FORMAT
 
 from fireworks.core.firework import FiretaskBase, FWAction
 from fireworks.utilities.dict_mods import get_nested_dict_value
@@ -32,6 +36,7 @@ __copyright__ = 'Copyright 2020, IMTEK Simulation, University of Freiburg'
 __email__ = 'johannes.hoermann@imtek.uni-freiburg.de, johannes.laurin@gmail.com'
 __date__ = 'Apr 27, 2020'
 
+DEFAULT_FORMATTER = logging.Formatter(FW_LOGGING_FORMAT)
 
 def _log_nested_dict(log_func, dct):
     for l in json.dumps(dct, indent=2, default=str).splitlines():
@@ -161,6 +166,8 @@ class TemporaryOSEnviron:
     def __enter__(self):
         """Store backup of current os.environ."""
         logger = logging.getLogger(__name__)
+        logger.debug("Backed-up os.environ:")
+        _log_nested_dict(logger.debug, os.environ)
         self._original_environ = os.environ.copy()
 
         if self._insertions:
@@ -168,7 +175,7 @@ class TemporaryOSEnviron:
                 logger.debug("Inject env var '{}' = '{}'".format(k, v))
                 os.environ[k] = str(v)
 
-        logger.debug("Initial os.environ:")
+        logger.debug("Initial modified os.environ:")
         _log_nested_dict(logger.debug, os.environ)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -177,6 +184,36 @@ class TemporaryOSEnviron:
         os.environ = self._original_environ
         logger.debug("Recovered os.environ:")
         _log_nested_dict(logger.debug, os.environ)
+
+
+# in order to make sure any modifications to the environment within dtool
+# won't pollute Fireworks process environmnet, run task in separate process
+# https://stackoverflow.com/questions/19924104/python-multiprocessing-handling-child-errors-in-parent
+class Process(multiprocessing.Process):
+    """
+    Class which returns child Exceptions to Parent.
+    https://stackoverflow.com/a/33599967/4992248
+    """
+
+    def __init__(self, *args, **kwargs):
+        multiprocessing.Process.__init__(self, *args, **kwargs)
+        self._parent_conn, self._child_conn = multiprocessing.Pipe()
+        self._exception = None
+
+    def run(self):
+        try:
+            multiprocessing.Process.run(self)
+            self._child_conn.send(None)
+        except Exception as e:
+            tb = traceback.format_exc()
+            self._child_conn.send((e, tb))
+            raise e  # You can still rise this exception if you need to
+
+    @property
+    def exception(self):
+        if self._parent_conn.poll():
+            self._exception = self._parent_conn.recv()
+        return self._exception
 
 
 class DtoolTask(FiretaskBase):
@@ -222,6 +259,33 @@ class DtoolTask(FiretaskBase):
         ...
 
     def run_task(self, fw_spec):
+        """Spawn child process to assure my environment stays untouched."""
+        q = multiprocessing.Queue()
+        p = Process(target=self._run_task_as_child_process, args=(q, fw_spec,))
+
+        p.start()
+
+        # wait for child to queue fw_action object and
+        # check whether child raises exception
+        while q.empty():
+            # if child raises exception, then it has terminated
+            # before queueing any fw_action object
+            if p.exception:
+                error, p_traceback = p.exception
+                raise ChildProcessError(p_traceback)
+        # this loop will deadlock for any child that never raises
+        # an exception and does not queue anything
+
+        # queue only used for one transfer of
+        # return fw_action, should thus never deadlock.
+        fw_action = q.get()
+        # if we reach this line without the child
+        # queueing anything, then process will deadlock.
+        p.join()
+        return fw_action
+
+    def _run_task_as_child_process(self, q, fw_spec):
+        """q is a Queue used to return fw_action."""
         stored_data = self.get('stored_data', False)
         output_key = self.get('output', None)
         dict_mod = self.get('dict_mod', '_set')
@@ -240,12 +304,14 @@ class DtoolTask(FiretaskBase):
             if store_stdlog:
                 stdlog_stream = io.StringIO()
                 logh = logging.StreamHandler(stdlog_stream)
+                logh.setFormatter(DEFAULT_FORMATTER)
                 stack.enter_context(
                     LoggingContext(handler=logh, level=loglevel, close=False))
 
             # logging to dedicated log file if desired
             if stdlog_file:
                 logfh = logging.FileHandler(stdlog_file, mode='a', **ENCODING_PARAMS)
+                logfh.setFormatter(DEFAULT_FORMATTER)
                 stack.enter_context(
                     LoggingContext(handler=logfh, level=loglevel, close=True))
 
@@ -295,7 +361,8 @@ class DtoolTask(FiretaskBase):
         if output_key:  # inject into fw_spec
             fw_action.mod_spec = [{dict_mod: {output_key: output}}]
 
-        return fw_action
+        # return fw_action
+        q.put(fw_action)
 
 
 class CreateDatasetTask(DtoolTask):
