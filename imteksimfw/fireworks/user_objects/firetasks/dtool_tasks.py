@@ -104,7 +104,7 @@ def _get_readme_template(fpath=None):
     if fpath is None:
         fpath = dtool_create.dataset.README_TEMPLATE_FPATH
 
-    with open(fpath) as fh:
+    with open(fpath, mode='r', **ENCODING_PARAMS) as fh:
         readme_template = fh.read()
 
     user_email = dtoolcore.utils.get_config_value(
