@@ -11,8 +11,10 @@ FIREWORKS_DB:         fireworks
 FIREWORKS_USER:       fireworks
 FIREWORKS_PWD:        fireworks
 
-SSH_HOST:             132.230.102.164
-SSH_USER:             sshclient
-SSH_KEY:              /p/home/jusers/USERNAME/juwels/.ssh/sshclient-frrzvm
-MONGODB_PORT_REMOTE:  27017
-MONGODB_PORT_LOCAL:   27999
+MONGODB_HOST: simdata.vm.uni-freiburg.de
+MONGODB_PORT: 27017
+
+SSL: true
+SSL_CA_CERTS: /home/PROJECT/USERNAME/.ssl/root.pem
+SSL_CERTFILE: /home/PROJECT/USERNAME/.ssl/cert.pem
+SSL_KEYFILE:  /home/PROJECT/USERNAME/.ssl/key.pem

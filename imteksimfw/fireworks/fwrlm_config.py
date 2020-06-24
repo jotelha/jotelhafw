@@ -60,17 +60,26 @@ WEBGUI_PASSWORD = "fireworks"
 WEBGUI_PORT = 19886
 
 # mongodb and ssh tunnel settings
-MONGODB_HOST = 'localhost'
-MONGODB_PORT_REMOTE = 27017
-MONGODB_PORT_LOCAL = 27037
+MONGODB_HOST = 'simdata.vm.uni-freiburg.de'
+MONGODB_PORT = 27017
 FIREWORKS_DB = 'fireworks'
 FIREWORKS_USER = 'fireworks'
 FIREWORKS_PWD = 'fireworks'
-SSH_HOST = '132.230.102.164'
+
+# ssh tunnel settings
+SSH = False
+SSH_PORT_REMOTE = 27017
+SSH_PORT_LOCAL = 27037
+SSH_HOST = 'simdata.vm.uni-freiburg.de'
 SSH_USER = 'sshclient'
-SSH_TUNNEL = False
 SSH_KEY = os.path.join(os.path.expanduser('~'), ".ssh", "id_rsa")
 
+# tls/ssl encryption settings
+SSL = False
+SSL_CA_CERTS = os.path.join(os.path.expanduser('~'), ".ssl", "root.pem")
+SSL_CERTFILE = os.path.join(os.path.expanduser('~'), ".ssl", "cert.pem")
+SSL_KEYFILE = os.path.join(os.path.expanduser('~'), ".ssl", "key.pem")
+SSL_PEM_PASSPHRASE = None
 
 # run daemon to periodically check offline runs
 # RECOVER_OFFLINE = True
