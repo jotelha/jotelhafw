@@ -38,7 +38,7 @@ import psutil  # checking process status
 from imteksimfw.fireworks.fwrlm_config import \
   FW_CONFIG_PREFIX, FW_CONFIG_FILE_NAME, FW_AUTH_FILE_NAME, \
   LAUNCHPAD_LOC, LOGDIR_LOC, MACHINE, SCHEDULER, \
-  MONGODB_HOST, MONGODB_PORT_REMOTE, MONGODB_PORT_LOCAL, \
+  MONGODB_HOST, SSH_PORT_REMOTE, SSH_PORT_LOCAL, \
   FIREWORKS_DB, FIREWORKS_USER, FIREWORKS_PWD, \
   SSH_HOST, SSH_USER, SSH_KEY, \
   RLAUNCH_FWORKER_FILE, QLAUNCH_FWORKER_FILE, QADAPTER_FILE, \
@@ -150,11 +150,11 @@ class FireWorksRocketLauncherManager():
 
     @property
     def local_port(self):
-        return MONGODB_PORT_LOCAL
+        return SSH_PORT_LOCAL
 
     @property
     def remote_port(self):
-        return MONGODB_PORT_REMOTE
+        return SSH_PORT_REMOTE
 
     # only one ssh key implemented
     @property

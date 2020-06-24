@@ -173,7 +173,11 @@ class SSHForwardTask(RunAsChildProcessTask):
         'local_port',
         'port_file',
         'ssh_port',
-        'ssh_keyfile'
+        'ssh_keyfile',
+
+        'store_stdlog',
+        'stdlog_file',
+        'loglevel',
     ]
 
     def _run_task_as_child_process(self, fw_spec, q, e=None):

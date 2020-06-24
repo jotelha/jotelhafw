@@ -53,11 +53,11 @@ DAEMON_DICT = {
 
 DAEMON_SETS = {
     'all': [  # all services, including web gui
-        'ssh', 'rlaunch', 'qlaunch', 'recover', 'webgui'],
+        'rlaunch', 'qlaunch', 'recover', 'webgui'],
     'hpc-worker': [  # ssh tunnel to db, local and queue submission rocket launcher, recovery of offline runs
-        'ssh', 'rlaunch', 'qlaunch', 'recover'],
+        'rlaunch', 'qlaunch', 'recover'],
     'local-worker': [  # ssh tunnel to db and local rocket launcher
-        'ssh', 'rlaunch'],
+        'rlaunch'],
     'hpc-fw':  [  # all high-level FireWorks worker services (not ssh tunnel) on hpc system
         'rlaunch', 'qlaunch', 'recover'],
     'local-fw':  [  # all high-level FireWorks worker services (not ssh tunnel) on local system (no queue submission)
