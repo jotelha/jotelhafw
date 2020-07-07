@@ -13,6 +13,8 @@ To see verbose logging during testing, run something like
     suite.addTest(DtoolTasksTest('test_dynamic_metadata_override'))
     suite.addTest(DtoolTasksTest('test_static_and_dynamic_metadata_override'))
     suite.addTest(DtoolTasksTest('test_copy_dataset_task_to_smb_share'))
+    suite.addTest(DtoolTasksTest('test_create_derived_dataset'))
+    suite.addTest(DtoolTasksTest('test_create_derived_dataset_with_multiple_sources'))
     runner = unittest.TextTestRunner()
     runner.run(suite)
 """
@@ -685,6 +687,126 @@ class DtoolTasksTest(unittest.TestCase):
         self.assertEqual(
             source_dataset.uuid,
             derived_dataset.get_annotation("source_dataset_uuid"))
+
+    def test_create_derived_dataset_with_multiple_sources(self):
+        """Create three datasets, one derived from the other two."""
+        logger = logging.getLogger(__name__)
+
+        # create two dummy datasets to derive from
+
+        logger.debug("Instantiate CreateDatasetTask with '{}'".format(
+            self.default_create_dataset_task_spec))
+
+        dummy_names = ['dataset', 'another_dataset']
+
+        # for testing, add a non-existant source uri in the beginning
+        source_dataset_ref = [{'uri': 'file://some/none-existant/dataset'}]
+        for name in dummy_names:
+            t_spec = self.default_create_dataset_task_spec.copy()
+            t_spec['name'] = name
+            t = CreateDatasetTask(**t_spec)
+            fw_action = t.run_task({})
+            logger.debug("FWAction:")
+            _log_nested_dict(fw_action.as_dict())
+            uri = fw_action.stored_data['uri']
+            # source_dataset_uri.append(fw_action.stored_data['uri'])
+
+            logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
+                {'uri': uri, **self.default_freeze_dataset_task_spec}))
+            t = FreezeDatasetTask(
+                uri=uri, **self.default_freeze_dataset_task_spec)
+            fw_action = t.run_task({})
+            logger.debug("FWAction:")
+            _log_nested_dict(fw_action.as_dict())
+            # uri = fw_action.stored_data['uri']
+
+            with TemporaryOSEnviron(_read_json(self.files['dtool_config_path'])):
+                ret = verify(True, uri)
+
+            self.assertEqual(ret, True)
+
+            to_compare = {
+                'project': True,
+                'description': True,
+                'owners': [{
+                    'name': 'DTOOL_USER_FULL_NAME',
+                    'email': 'DTOOL_USER_EMAIL',
+                    'username': False,
+                }],
+                'creation_date': False,
+                'expiration_date': False,
+                'metadata': {
+                    'mode': True,
+                    'step': True,
+                }
+            }
+
+            compares = _compare_frozen_metadata_against_template(
+                os.path.join(self._dataset_name, "README.yml"),
+                self.files['dtool_readme_template_path'],
+                self.files['dtool_config_path'],
+                to_compare
+            )
+            self.assertEqual(compares, True)
+            source_dataset_ref.append(
+                {
+                    'name': fw_action.stored_data['name'],
+                    'uri': fw_action.stored_data['uri'],
+                    'uuid': fw_action.stored_data['uuid'],
+
+                }
+            )
+
+        logger.debug("Derive from source datasets with URIs '{}'.".format(
+            source_dataset_ref))
+
+        t_spec = self.default_create_dataset_task_spec.copy()
+        t_spec['name'] = 'derived_datset'
+        t_spec['source_dataset_uri'] = [d['uri'] for d in source_dataset_ref]
+
+        logger.debug("Instantiate another CreateDatasetTask with task spec:")
+        _log_nested_dict(t_spec)
+        t = CreateDatasetTask(**t_spec)
+        fw_action = t.run_task({})
+        logger.debug("FWAction:")
+        _log_nested_dict(fw_action.as_dict())
+        derived_datset_uri = fw_action.stored_data['uri']
+
+        logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
+            {'uri': derived_datset_uri, **self.default_freeze_dataset_task_spec}))
+        t = FreezeDatasetTask(
+            uri=derived_datset_uri, **self.default_freeze_dataset_task_spec)
+        fw_action = t.run_task({})
+        logger.debug("FWAction:")
+        _log_nested_dict(fw_action.as_dict())
+        derived_dataset_uri = fw_action.stored_data['uri']
+
+        with TemporaryOSEnviron(_read_json(self.files['dtool_config_path'])):
+            ret = verify(True, derived_datset_uri)
+        self.assertEqual(ret, True)
+
+        # check that fields for derived datasets agree
+        # if handled corrctly, then the second uri in the list must have
+        # been picked as primary source
+        source_dataset = dtoolcore.DataSet.from_uri(source_dataset_ref[1]['uri'])
+        derived_dataset = dtoolcore.DataSet.from_uri(derived_dataset_uri)
+        self.assertEqual(
+            source_dataset.name,
+            derived_dataset.get_annotation("source_dataset_name"))
+        self.assertEqual(
+            source_dataset.uri,
+            derived_dataset.get_annotation("source_dataset_uri"))
+        self.assertEqual(
+            source_dataset.uuid,
+            derived_dataset.get_annotation("source_dataset_uuid"))
+
+        # make sure dependeny annotations are set correctly
+        source_datasets = derived_dataset.get_annotation("derived_from")
+        for ref, cur in zip(source_dataset_ref, source_datasets):
+            self.assertEqual(len(ref), len(cur))
+            for k, l in zip(sorted(ref), sorted(cur)):
+                self.assertEqual(k, l)
+                self.assertEqual(ref[k], cur[l])
 
 
 if __name__ == '__main__':

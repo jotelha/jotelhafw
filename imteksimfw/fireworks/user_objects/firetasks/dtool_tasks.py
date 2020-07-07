@@ -14,6 +14,7 @@ import io
 import json
 import logging
 import os
+import warnings
 
 from ruamel.yaml import YAML
 
@@ -306,20 +307,64 @@ class CreateDatasetTask(DtoolTask):
         - metadata (dict): Static metadata to attach to data set.
             Static metadata takes precendence over dynamic metadata in case of
             overlap. Also overrides fields specified in readme template.
-        - name (str): Name of dataset, default: "dataset".
-        - paths (list/str): Either list of paths or a glob pattern string.
-            Per default, all content of 'directory'.
-        - source_dataset_uri (str): A derived dataset will be created if
-            specified. Default: None.
+        - name (str): Name of dataset, default is current timestamp and some
+            : "dataset".
+        - paths (list of str / str): Either list of paths or a glob pattern
+            string. Per default, all content of 'directory'.
+        - source_dataset_uri (list of str / str): A derived dataset will be
+            created if  specified. This is only possible if the source dataset
+            is accessible. If this is not the case, this task will raise a
+            warning and fall back to the standard dataset creation mechanism.
+            If multiple source datasets are specified as a list,
+            then the dataset will be derived directly from the first list entry
+            If the source datasets are accessible, their names ad UUIDs are
+            queried and stored along with their URIs in a list of format
+
+                derived_from:  # or other  label set via 'source_dataset_key'
+                - uuid: UUID of the first source dataset if available
+                  name: name of the first source dataset if available
+                  uri:  URI of the first source dataset
+                - uuid: UUID of the second source dataset if available
+                  name: name of the second source dataset if available
+                  uri:  URI of the second source dataset
+                - ...
+
+            in the README.yml. UUID and name fields are omitted if datasets
+            are not accessible.
+        - source_dataset (list of dict [{str:str}] / dict {str:str}): An
+            alternative to above's 'source_dataset_uri'. Can directly specify
+            all source datasets' names, uris, and uuids in the format
+
+                source_dataset:
+                - uuid: UUID of the first source dataset if available
+                  name: name of the first source dataset if available
+                  uri:  URI of the first source dataset
+                - uuid: UUID of the second source dataset if available
+                  name: name of the second source dataset if available
+                  uri:  URI of the second source dataset
+                - ...
+
+            None of the fields is compulsory. If specified datasets
+            are not accessible, then warnings will be raised, but specified
+            values will be used as defaults for filling references to sources
+            as above. If datasets are accessible, but their names and uuids
+            won't agree with the specified defaults, warnings are raised
+            accordingly and the actual values will override the defaults.
+            If both 'source_dataset_uri' and 'source_dataset' are specified,
+            then 'source_dataset_uri' is ignored. Default: None.
+        - source_dataset_annotation (bool): If True, then also store
+            above's 'derived_from' field as JSON annotation. Default: True.
+        - source_dataset_key (str): Key of dependency README.yml entry and
+            annotation. Default: 'derived_from'.
 
     The dataset's README.yml file is a successive merge of the README template,
     static metadata and dynamic metadata, ordered by increasing precedence in
     the case of conflicting fields.
 
-    Fields 'creator_username', 'dtool_readme_template_path', 'name', and
-    'source_dataset_uri' may also be a dict of format
-    { 'key': 'some->nested->fw_spec->key' } for looking up value within
-    fw_spec instead.
+    Fields 'creator_username', 'dtool_readme_template_path', 'name',
+    'source_dataset_uri', 'source_dataset', and 'source_dataset_annotation'
+    may also be a dict of format { 'key': 'some->nested->fw_spec->key' } for
+    looking up value within 'fw_spec' instead.
     """
     _fw_name = 'CreateDatasetTask'
     required_params = [
@@ -334,7 +379,10 @@ class CreateDatasetTask(DtoolTask):
         "metadata_key",
         "name",
         "paths",
-        "source_dataset_uri"]
+        "source_dataset_uri",
+        "source_dataset",
+        "source_dataset_annotation",
+        "source_dataset_key"]
 
     def _run_task_internal(self, fw_spec):
         logger = logging.getLogger(__name__)
@@ -361,8 +409,84 @@ class CreateDatasetTask(DtoolTask):
         source_dataset_uri = self.get(
             "source_dataset_uri", None)
         source_dataset_uri = from_fw_spec(source_dataset_uri, fw_spec)
+        # make sure source_dataset_uri is either str or list of str:
+        if isinstance(source_dataset_uri, str):
+            source_dataset_uri = [source_dataset_uri]
         if source_dataset_uri is not None:
-            logger.info("Derive from '{}'.".format(source_dataset_uri))
+            try:
+                iter(source_dataset_uri)
+            except TypeError as exc:
+                logger.error("'source_dataset_uri' must be str or list of str.")
+                raise exc
+            logger.info("Derive from 'source_dataset_uri': '{}'.".format(source_dataset_uri))
+
+        source_dataset = self.get(
+            "source_dataset", None)
+        source_dataset = from_fw_spec(source_dataset, fw_spec)
+        # make sure source_dataset_uri is either dict or list of dict:
+        if isinstance(source_dataset_uri, dict):
+            source_dataset = [source_dataset]
+        if source_dataset is not None:
+            try:
+                iter(source_dataset)
+            except TypeError as exc:
+                logger.error("'source_dataset' must be dict or list of dict.")
+                raise exc
+            logger.info("Derive from 'source_dataset': '{}'.".format(source_dataset))
+
+        if (source_dataset_uri is not None) and (source_dataset is not None):
+            logger.info(
+                "Both 'source_dataset_uri' and 'source_dataset' are set."
+                "Latter will override former.")
+        elif source_dataset_uri is not None:  # and not source_dataset
+            source_dataset = [{'uri': uri} for uri in source_dataset_uri]
+
+        # from here on, only use source_dataset scheme
+
+        # fill missing fields in source_dataset if uri is present and accessible
+        if source_dataset is not None:
+            for i, d in enumerate(source_dataset):
+                if 'uri' in d:
+                    # check whether source dataset accessible
+                    try:
+                        current_source_dataset = dtoolcore.DataSet.from_uri(
+                            d['uri'])
+                    except dtoolcore.DtoolCoreTypeError as exc:
+                        logger.warning(
+                            "Source dataset #{} with URI '{}' not accessible [{}]."
+                            .format(i, d['uri'], exc))
+                    else:
+                        logger.info(
+                            "Source dataset #{} has name '{}', uri '{}', and uuid '{}'."
+                            .format(i, 
+                                current_source_dataset.name,
+                                current_source_dataset.uri,
+                                current_source_dataset.uuid))
+
+                        if 'name' in d and d['name'] != current_source_dataset.name:
+                            logger.waning(("Source dataset #{} actual name '{}' "
+                                "does not agree with specified default '{}'. "
+                                "Former will override latter.").format(
+                                    i, current_source_dataset.name, d["name"]))
+                        d["name"] = current_source_dataset.name
+
+                        if 'uuid' in d and d['uuid'] != current_source_dataset.uuid:
+                            logger.waning(("Source dataset #{} actual UUID '{}' "
+                                "does not agree with specified default '{}'. "
+                                "Former will override latter.").format(
+                                    i, current_source_dataset.uuid, d["uuid"]))
+                        d["uuid"] = current_source_dataset.uuid
+                else:
+                    logger.warn("Source dataset '{}' has no URI specified."
+                                .format(d))
+
+        source_dataset_annotation = self.get(
+            "source_dataset_annotation", True)
+        source_dataset_annotation = from_fw_spec(source_dataset_annotation, fw_spec)
+
+        source_dataset_key = self.get(
+            "source_dataset_key", "derived_from")
+        source_dataset_key = from_fw_spec(source_dataset_key, fw_spec)
 
         dtool_readme_template_path = self.get(
             "dtool_readme_template_path", None)
@@ -433,9 +557,18 @@ class CreateDatasetTask(DtoolTask):
         logger.debug("Static task-level metadata:")
         _log_nested_dict(logger.debug, static_metadata)
 
+        # source_dataset will override anything else in designated dependency
+        # field if specified:
+        dependency_metadata = {}
+        if source_dataset is not None:
+            dependency_metadata = {source_dataset_key: source_dataset}
+            logger.debug("Dependency metadata:")
+            _log_nested_dict(logger.debug, dependency_metadata)
+
         metadata = {}
         metadata = dict_merge(template_metadata, dynamic_metadata)
         metadata = dict_merge(metadata, static_metadata)
+        metadata = dict_merge(metadata, dependency_metadata)
         logger.debug("Merged metadata:")
         _log_nested_dict(logger.debug, metadata)
 
@@ -471,27 +604,49 @@ class CreateDatasetTask(DtoolTask):
         # https://github.com/jic-dtool/dtool-create/blob/0a772aa5157523a7219963803293d4e521bc1aa2/dtool_create/dataset.py#L127
         # not treated here.
 
-        if source_dataset_uri is not None:
-            parsed_source_dataset_uri = dtoolcore.utils.generous_parse_uri(
-                source_dataset_uri)
-            logger.info("Derive new dataset from '{}'.".format(
-                parsed_source_dataset_uri))
-            source_dataset = dtoolcore.DataSet.from_uri(source_dataset_uri)
-            logger.info(
-                "Source dataset has name '{}', uri '{}', and uuid '{}'."
-                .format(source_dataset.name, source_dataset.uri, source_dataset.uuid))
+        first_source_dataset = None
+        if source_dataset is not None:
+            logger.info("Select first accessible source dataset.")
+            # find first source dataset with valid URI
+            for i, d in enumerate(source_dataset):
+                if 'uri' in d:
+                    # parsed_source_dataset_uri = dtoolcore.utils.generous_parse_uri(d['uri'])
+                    # logger.info("Derive new dataset from '{}'.".format(
+                    #     parsed_source_dataset_uri))
+                    try:
+                        first_source_dataset = dtoolcore.DataSet.from_uri(d["uri"])
+                    except dtoolcore.DtoolCoreTypeError as exc:
+                        logger.warning("Source dataset #{} with URI '{}' not accessible, skipped.".format(i, d['uri']))
+                    else:
+                        logger.info("Found source dataset #{} with URI '{}' accessible.".format(i, d['uri']))
+                        logger.info(
+                            "Source dataset has name '{}', uri '{}', and uuid '{}'."
+                            .format(first_source_dataset.name, first_source_dataset.uri, first_source_dataset.uuid))
+                        break
+                else:
+                    logger.warning("Source dataset #{} has no URI field, skipped.".format(i))
+            if first_source_dataset is None:
+                logger.warning((
+                    "None of specified source datasets accessible. "
+                    "Falling back to default dataset creator."))
+
+        if first_source_dataset is not None:
             proto_dataset = dtoolcore.create_derived_proto_dataset(
                 name=name,
                 base_uri=dtoolcore.utils.urlunparse(parsed_base_uri),
-                source_dataset=source_dataset,
+                source_dataset=first_source_dataset,
                 readme_content=readme,
                 creator_username=creator_username)
-        else:
+        else:   # fall back to default mechanism without source dataset instead
             proto_dataset = dtoolcore.create_proto_dataset(
                 name=name,
                 base_uri=dtoolcore.utils.urlunparse(parsed_base_uri),
                 readme_content=readme,
                 creator_username=creator_username)
+
+        # store dependencies as annotations if desired
+        if source_dataset_annotation and source_dataset is not None:
+            proto_dataset.put_annotation(source_dataset_key, source_dataset)
 
         # add items to dataset one by one
         # TODO: possibility for per-item metadata
