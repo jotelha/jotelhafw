@@ -14,7 +14,7 @@ import io
 import json
 import logging
 import os
-import warnings
+import uuid
 
 from ruamel.yaml import YAML
 
@@ -307,8 +307,7 @@ class CreateDatasetTask(DtoolTask):
         - metadata (dict): Static metadata to attach to data set.
             Static metadata takes precendence over dynamic metadata in case of
             overlap. Also overrides fields specified in readme template.
-        - name (str): Name of dataset, default is current timestamp and some
-            : "dataset".
+        - name (str): Name of dataset, default is a v1 UUID.
         - paths (list of str / str): Either list of paths or a glob pattern
             string. Per default, all content of 'directory'.
         - source_dataset_uri (list of str / str): A derived dataset will be
@@ -388,7 +387,7 @@ class CreateDatasetTask(DtoolTask):
         logger = logging.getLogger(__name__)
 
         name = self.get(
-            "name", "dataset")
+            "name", uuid.uuid1())
         name = from_fw_spec(name, fw_spec)
 
         # see https://github.com/jic-dtool/dtoolcore/blob/6aff99531d1192f86512f662caf22a6ecd2198a5/dtoolcore/utils.py#L254
@@ -458,7 +457,7 @@ class CreateDatasetTask(DtoolTask):
                     else:
                         logger.info(
                             "Source dataset #{} has name '{}', uri '{}', and uuid '{}'."
-                            .format(i, 
+                            .format(i,
                                 current_source_dataset.name,
                                 current_source_dataset.uri,
                                 current_source_dataset.uuid))
