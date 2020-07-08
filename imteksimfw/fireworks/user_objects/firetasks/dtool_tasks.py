@@ -387,7 +387,7 @@ class CreateDatasetTask(DtoolTask):
         logger = logging.getLogger(__name__)
 
         name = self.get(
-            "name", uuid.uuid1())
+            "name", str(uuid.uuid1()))
         name = from_fw_spec(name, fw_spec)
 
         # see https://github.com/jic-dtool/dtoolcore/blob/6aff99531d1192f86512f662caf22a6ecd2198a5/dtoolcore/utils.py#L254
