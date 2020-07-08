@@ -7,6 +7,7 @@ from contextlib import ExitStack
 from typing import List
 
 import collections
+import copy  # for deep copies of nested objects, avoid references in YAML dumps
 import datetime
 import getpass  # get system username for dtool metadata
 import glob
@@ -560,7 +561,7 @@ class CreateDatasetTask(DtoolTask):
         # field if specified:
         dependency_metadata = {}
         if source_dataset is not None:
-            dependency_metadata = {source_dataset_key: source_dataset}
+            dependency_metadata = {source_dataset_key: copy.deepcopy(source_dataset)}
             logger.debug("Dependency metadata:")
             _log_nested_dict(logger.debug, dependency_metadata)
 
