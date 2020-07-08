@@ -423,7 +423,7 @@ class CreateDatasetTask(DtoolTask):
             "source_dataset", None)
         source_dataset = from_fw_spec(source_dataset, fw_spec)
         # make sure source_dataset_uri is either dict or list of dict:
-        if isinstance(source_dataset_uri, dict):
+        if isinstance(source_dataset, dict):
             source_dataset = [source_dataset]
         if source_dataset is not None:
             try:
