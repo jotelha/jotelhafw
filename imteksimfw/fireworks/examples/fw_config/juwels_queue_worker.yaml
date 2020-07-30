@@ -165,9 +165,8 @@ env:
     cmd:
       lmp:
         init:
-        - 'module("use","/gpfs/software/juwels/otherstages")'
-        - 'module("load","Stages/2018b")'
-        - 'module("load","lammps/16Mar18-intel-2019-gcc-7.3-impi-2018-colvars-18Feb19")'
+        - 'module("load","Intel/2019.3.199-GCC-8.3.0","IntelMPI/2019.3.199")'
+        - 'module("load","LAMMPS/24Jan2020-Python-3.6.8")'
         - 'module("list")'
         prefix: 'srun'
 
