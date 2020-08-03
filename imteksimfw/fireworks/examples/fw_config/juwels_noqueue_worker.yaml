@@ -231,6 +231,12 @@ env:
         - 'module("load","mdtools")'
         - 'module("list")'
 
+      lmp_extract_property:
+        init:
+        - 'module("load","Intel/2019.3.199-GCC-8.3.0","IntelMPI/2019.3.199")'
+        - 'module("load","ovito/3.1.2-Python-3.6.8")'
+        - 'module("load","imteksimcs/devel-Python-3.6.8")'
+
       merge.py:
         init:
         - 'module("load","mdtools/01Jun19-python-2.7")'
