@@ -235,7 +235,17 @@ class RecoverTask(FiretaskBase):
             most recent macth per list entry is recovered.
             Default: ['*.restart[0-9]']
 
+        - output (str): spec key that will be used to pass output to child
+            fireworks. Default: None
+        - dict_mod (str, default: '_set'): how to insert output into output
+            key, see fireworks.utilities.dict_mods
+        - propagate (bool, default: None): if True, then set the
+            FWAction 'propagate' flag and propagate updated fw_spec not only to
+            direct children, but to all descendants down to wokflow's leaves.
+        - stored_data (bool, default: False): put outputs into database via
+            FWAction.stored_data
         - store_stdlog (bool, default: False): insert log output into database
+            (only if 'stored_data' or 'output' is spcified)
         - stdlog_file (str, Default: NameOfTaskClass.log): print log to file
         - loglevel (str, Default: logging.INFO): loglevel for this task
 
@@ -272,7 +282,7 @@ class RecoverTask(FiretaskBase):
     required_params = []
     optional_params = [
         "recover",
-        "restart_fw",
+        "restart_wf",
         "detour_wf",
         "addition_wf",
 
@@ -286,11 +296,15 @@ class RecoverTask(FiretaskBase):
         "restart_counter",
         "restart_file_glob_patterns",
 
+        "stored_data",
+        "output",
+        "dict_mod",
+        "propagate",
         "stdlog_file",
         "store_stdlog",
         "loglevel"]
 
-    def appendable_wf_from_dict(self, obj_dict, fw_spec):
+    def appendable_wf_from_dict(self, obj_dict):
         """Creates Workflow from a Workflow or single FireWork dict description.
 
         Sets _files_prev in roots of new workflow."""
@@ -304,10 +318,21 @@ class RecoverTask(FiretaskBase):
                 fw = Firework.from_dict(obj_dict)
                 fw.fw_id = self.consecutive_fw_id
                 self.consecutive_fw_id -= 1
-            wf = Workflow([fw])
-        else:   # if no single fw, then wf
-            wf = Workflow.from_dict(obj_dict)
-            # do we have to reassign fw_ids?
+                wf = Workflow([fw])
+            else:   # if no single fw, then wf
+                wf = Workflow.from_dict(obj_dict)
+                remapped_fw_ids = {}
+                # do we have to reassign fw_ids? yes
+                for fw in wf.fws:
+                    remapped_fw_ids[fw.fw_id] = self.consecutive_fw_id
+                    self.consecutive_fw_id -= 1
+                wf._reassign_ids(remapped_fw_ids)
+        else:
+            raise ValueError("type({}) is '{}', but 'dict' expected.".format(
+                             obj_dict, type(obj_dict)))
+
+        return wf
+
 
         # modeled to match original snippet from fireworks.core.rocket:
 
@@ -326,6 +351,10 @@ class RecoverTask(FiretaskBase):
 
         # if the curret fw yields outfiles, then check whether according
         # '_files_prev' must be written for newly created insertions
+
+    def write_files_prev(self, wf, fw_spec):
+        logger = logging.getLogger(__name__)
+
         if fw_spec.get("_files_out"):
             logger.info("Current FireWork's '_files_out': {}".format(
                         fw_spec.get("_files_out")))
@@ -352,7 +381,6 @@ class RecoverTask(FiretaskBase):
 
     def run_task(self, fw_spec):
         self.consecutive_fw_id = -1  # quite an ugly necessity
-
         # get fw_spec entries or their default values:
         recover = self.get('recover', True)
         restart_wf_dict = self.get('restart_wf', None)
@@ -394,6 +422,12 @@ class RecoverTask(FiretaskBase):
                                         '_files_prev',
                                         '_fizzled_parents',
                                       ])
+
+        # generic parameters
+        stored_data = self.get('stored_data', False)
+        output_key = self.get('output', None)
+        dict_mod = self.get('dict_mod', '_set')
+        propagate = self.get('propagate', False)
 
         stdlog_file = self.get('stdlog_file', '{}.log'.format(self._fw_name))
         store_stdlog = self.get('store_stdlog', False)
@@ -545,12 +579,18 @@ class RecoverTask(FiretaskBase):
                                 "for glob pattern '{}'.".format(
                                     glob_pattern,
                                     sorted_restart_file_matches))
+                    logger.info("Modification times for those files: {}".format(
+                        [os.path.getmtime(f) for f in sorted_restart_file_matches]))
+                    logger.info("Most recent restart file '{}' will be copied "
+                                "to '{}'.".format(
+                                    sorted_restart_file_matches[-1], dest))
                     restart_file_list.append(
                         (sorted_restart_file_matches[-1], dest))
-                elif len(restart_file_list) == 1:
-                    logger.info("One restart file {} for glob "
-                                "pattern {}".format(
-                                    restart_file_matches[0]))
+                elif len(restart_file_matches) == 1:
+                    logger.info("One restart file '{}' for glob "
+                                "pattern '{}' will be copied to '{}'.".format(
+                                    restart_file_matches[0],
+                                    glob_pattern, dest))
                     restart_file_list.append(
                         (restart_file_matches[0], dest))
                 else:
@@ -560,23 +600,8 @@ class RecoverTask(FiretaskBase):
                             "No restart file in {} for glob pattern {}".format(
                                 path_prefix, glob_pattern))
 
-            # distinguish between FireWorks and Workflows by top-level keys
-            # fw: ['spec', 'fw_id', 'created_on', 'updated_on', 'name']
-            # wf: ['fws', 'links', 'name', 'metadata', 'updated_on', 'created_on']
-            detour_wf = None
-            addition_wf = None
-
-            # if detour_fw given, append in any case:
-            if isinstance(detour_wf_dict, dict):
-                detour_wf = self.appendable_wf_from_dict(detour_wf_dict, fw_spec)
-
-            if detour_wf is not None:
-                logger.debug(
-                    "detour_wf:")
-                _log_nested_dict(logger.debug, detour_wf.as_dict())
-
-            # append restart fireworks if restart file exists
-            if len(restart_file_list) > 0 and restart_wf_dict:
+            # copy all identified restart files
+            if len(restart_file_list) > 0:
                 for current_restart_file, dest in restart_file_list:
                     current_restart_file_basename = os.path.basename(current_restart_file)
                     logger.info("File {} will be forwarded.".format(
@@ -589,6 +614,23 @@ class RecoverTask(FiretaskBase):
                                         current_restart_file, dest))
                         raise exc
 
+            # distinguish between FireWorks and Workflows by top-level keys
+            # fw: ['spec', 'fw_id', 'created_on', 'updated_on', 'name']
+            # wf: ['fws', 'links', 'name', 'metadata', 'updated_on', 'created_on']
+            detour_wf = None
+            addition_wf = None
+
+            # if detour_fw given, append in any case:
+            if isinstance(detour_wf_dict, dict):
+                detour_wf = self.appendable_wf_from_dict(detour_wf_dict)
+
+            if detour_wf is not None:
+                logger.debug(
+                    "detour_wf:")
+                _log_nested_dict(logger.debug, detour_wf.as_dict())
+
+            # append restart fireworks if desired
+            if restart_wf_dict:
                 # try to derive number of restart from fizzled parent
                 restart_count = None
                 if prev_job_info and ('spec' in prev_job_info):
@@ -620,8 +662,7 @@ class RecoverTask(FiretaskBase):
                         "This is #{:d} of at most {:d} restarts.".format(
                             restart_count+1, max_restarts))
 
-                    restart_wf = self.appendable_wf_from_dict(restart_wf_dict,
-                                                              fw_spec)
+                    restart_wf = self.appendable_wf_from_dict(restart_wf_dict)
 
                     # apply updates to fw_spec
                     for fws in restart_wf.fws:
@@ -632,35 +673,18 @@ class RecoverTask(FiretaskBase):
                         "restart_wf:")
                     _log_nested_dict(logger.debug, restart_wf.as_dict())
 
-
                     # repeatedly append copy of this recover task:
                     recover_ft = self
+                    logger.debug("subsequent recover_fw's task recover_ft:")
+                    _log_nested_dict(logger.debug, recover_ft.as_dict())
 
                     # repeated recovery firework inherits the following specs:
                     recover_fw_spec = {key: fw_spec[key] for key in fw_spec
                                        if key not in fw_spec_to_exclude}
+                    logger.debug("propagating fw_spec = {} to subsequent "
+                                 "recover_fw.".format(recover_fw_spec))
 
-                    # make repeated recovery fireworks dependent on all
-                    # other leaf fireworks (i.e. detour and restart):
-                    recover_fw_parents = []
-                    if restart_wf is not None:
-                        recover_fw_parents.extend(restart_wf.leaf_fw_ids)
-                    if detour_wf is not None:
-                        recover_fw_parents.extend(detour_wf.leaf_fw_ids)
-
-                    recover_fw = Firework(
-                        recover_ft,
-                        spec=recover_fw_spec,  # inherit this Firework's spec
-                        name=repeated_recover_fw_name,
-                        parents=recover_fw_parents,
-                        fw_id=self.consecutive_fw_id)
-                    self.consecutive_fw_id -= 1
-                    logger.info("Create repeated recover Firework {} with "
-                                "id {} and specs {}".format(recover_fw.name,
-                                                            recover_fw.fw_id,
-                                                            recover_fw.spec))
-
-                    # merging insertions
+                    # merge insertions
                     #
                     #  + - - - - - - - - - - - - - - - - - - -+
                     #  ' detour_wf                            '
@@ -680,16 +704,27 @@ class RecoverTask(FiretaskBase):
                     #  ' | restart_wf roots | --> | leaf(s) | ' --> | recovery |
                     #  ' +------------------+     +---------+ '     +----------+
                     #
-                    # into one workflow
+                    # into one workflow and make repeated recovery fireworks
+                    # dependent on all leaf fireworks of detour and restart:
 
-                    fws = []
-                    if restart_wf is not None:
-                        fws.extend(restart_wf.fws)
-                    if detour_wf is not None:
-                        fws.extend(detour_wf.fws)
+                    if restart_wf is not None and detour_wf is not None:
+                        detour_wf.append_wf(restart_wf, [])
+                    elif restart_wf is not None:  # and detour wf is None
+                        detour_wf = restart_wf
 
-                    detour_wf = Workflow(
-                        [*fws, recover_fw])
+                    recover_fw = Firework(
+                        recover_ft,
+                        spec=recover_fw_spec,  # inherit this Firework's spec
+                        name=repeated_recover_fw_name,
+                        fw_id=self.consecutive_fw_id)
+                    self.consecutive_fw_id -= 1
+                    logger.info("Create repeated recover Firework {} with "
+                                "id {} and specs {}".format(recover_fw.name,
+                                                            recover_fw.fw_id,
+                                                            recover_fw.spec))
+
+                    recover_wf = Workflow([recover_fw])
+                    detour_wf.append_wf(recover_wf, detour_wf.leaf_fw_ids)
 
                     logger.debug(
                         "Workflow([*detour_wf.fws, *restart_wf.fws, recover_fw]):")
@@ -698,14 +733,34 @@ class RecoverTask(FiretaskBase):
                     logger.info(
                         "Maximum number of {} restarts reached. ".format(
                         max_restarts), "No further restart.")
+
+                self.write_files_prev(detour_wf, fw_spec)
             else:
                 logger.warning("No restart file, no restart Fireworks appended.")
 
             # if detour_fw given, append in any case:
             if isinstance(addition_wf_dict, dict):
-                addition_wf = self.appendable_wf_from_dict(addition_wf_dict,
-                                                           fw_spec)
+                addition_wf = self.appendable_wf_from_dict(addition_wf_dict)
+                self.write_files_prev(addition_wf, fw_spec)
 
-            return FWAction(
-                additions=addition_wf,
-                detours=detour_wf)
+        # end of ExitStack context
+        output = {}
+        if store_stdlog:
+            stdlog_stream.flush()
+            output['stdlog'] = stdlog_stream.getvalue()
+
+        fw_action = FWAction(
+            additions=addition_wf,
+            detours=detour_wf)
+
+        if stored_data:
+            fw_action.stored_data = output
+
+        # 'propagate' only development feature for now
+        if hasattr(fw_action, 'propagate') and propagate:
+            fw_action.propagate = propagate
+
+        if output_key:  # inject into fw_spec
+            fw_action.mod_spec = [{dict_mod: {output_key: output}}]
+
+        return fw_action
