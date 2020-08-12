@@ -196,14 +196,11 @@ class RecoverTask(FiretaskBase):
     in unambiguous situations.
 
     Required parameters:
-
-    Optional parameters:
-        - recover (bool): Pull launchdir from previous FireWork if True.
-            Otherwise assume output files to have been produced in same Firework.
-            Default: True
         - restart_wf (dict): Workflow or single FireWork to append only if
             restart file present (parent failed). Task will not append anything
             if None. Default: None
+
+    Optional parameters:
         - detour_wf (dict): Workflow or single FireWork to always append as
             a detour, independent on parent's success (i.e. post-processing).
             Task will not append anything if None. Default: None
@@ -279,10 +276,10 @@ class RecoverTask(FiretaskBase):
         - _files_prev
     """
     _fw_name = "RecoverLammpsTask"
-    required_params = []
-    optional_params = [
-        "recover",
+    required_params = [
         "restart_wf",
+    ]
+    optional_params = [
         "detour_wf",
         "addition_wf",
 
@@ -311,6 +308,8 @@ class RecoverTask(FiretaskBase):
         logger = logging.getLogger(__name__)
 
         # if detour_fw given, append in any case:
+        logger.debug("Initial dict:")
+        _log_nested_dict(logger.debug, obj_dict)
         if isinstance(obj_dict, dict):
             # in case of single Fireworks:
             if "spec" in obj_dict:
@@ -325,11 +324,14 @@ class RecoverTask(FiretaskBase):
                 # do we have to reassign fw_ids? yes
                 for fw in wf.fws:
                     remapped_fw_ids[fw.fw_id] = self.consecutive_fw_id
+                    fw.fw_id = self.consecutive_fw_id
                     self.consecutive_fw_id -= 1
                 wf._reassign_ids(remapped_fw_ids)
         else:
             raise ValueError("type({}) is '{}', but 'dict' expected.".format(
                              obj_dict, type(obj_dict)))
+        logger.debug("Built object:")
+        _log_nested_dict(logger.debug, wf.as_dict())
 
         return wf
 
@@ -382,7 +384,6 @@ class RecoverTask(FiretaskBase):
     def run_task(self, fw_spec):
         self.consecutive_fw_id = -1  # quite an ugly necessity
         # get fw_spec entries or their default values:
-        recover = self.get('recover', True)
         restart_wf_dict = self.get('restart_wf', None)
         detour_wf_dict = self.get('detour_wf', None)
         addition_wf_dict = self.get('addition_wf', None)
@@ -472,7 +473,7 @@ class RecoverTask(FiretaskBase):
                 restart_file_dests = restart_file_dests*len(
                     restart_file_glob_patterns)
 
-            if (len(restart_file_dests) > 1):
+            if len(restart_file_dests) > 1:
                 # supposedly, specific destinations have been specified for
                 # all possible restart files. If not:
                 if len(restart_file_glob_patterns) != len(restart_file_dests):
@@ -488,11 +489,15 @@ class RecoverTask(FiretaskBase):
                     restart_file_dests = [os.curdir]*len(
                         restart_file_glob_patterns)
 
+            # we have to decide whether the previous FireWorks failed or ended
+            # successfully and then append a restart run or not
+
+            recover = True  # per default, recover
             # check whether a previous firework handed down information
             prev_job_info = None
             path_prefix = None
             # pull from intentionally passed job info:
-            if recover and ('_job_info' in fw_spec):
+            if '_job_info' in fw_spec:
                 job_info_array = fw_spec['_job_info']
                 prev_job_info = job_info_array[-1]
                 path_prefix = prev_job_info['launch_dir']
@@ -504,7 +509,7 @@ class RecoverTask(FiretaskBase):
                     path_prefix))
             # TODO: fails for several parents if the "wrong" parent fizzles
             # pull from fizzled previous FW:
-            elif recover and ('_fizzled_parents' in fw_spec):
+            elif '_fizzled_parents' in fw_spec:
                 fizzled_parents_array = fw_spec['_fizzled_parents']
                 # pull latest (or last) fizzled parent:
                 prev_job_info = fizzled_parents_array[-1]
@@ -519,100 +524,94 @@ class RecoverTask(FiretaskBase):
                 logger.info(
                     'The location of fizzled parent Firework was: {}'.format(
                         path_prefix))
-            elif recover:  # no info about previous (fizzled or other) jobs
+            else:  # no info about previous (fizzled or other) jobs
                 logger.info(
                     'No information about previous (fizzled or other) jobs available.')
-                # completed successfully?
-            else:
-                # assume all output files in current directory
-                path_prefix = os.getcwd()
-                logger.info('Work on own launch dir.')
-
-            # only recover, if prev_job info not None
+                recover = False  # don't recover
+                # assume that parent completed successfully
 
             # find other files to forward:
             file_list = []
-            # current_restart_file = None
 
-            # if prev_job_info is not None:
-            if not isinstance(other_glob_patterns, Iterable):
-                other_glob_patterns = [other_glob_patterns]
-            for other_glob_pattern in other_glob_patterns:
-                if isinstance(other_glob_pattern, str):  # avoid non string objs
-                    logger.info("Processing glob pattern {}".format(
-                        other_glob_pattern))
-                    file_list.extend(
-                        glob.glob(
-                            os.path.join(
-                                path_prefix, other_glob_pattern))
-                    )
+            if recover:
+                if not isinstance(other_glob_patterns, Iterable):
+                    other_glob_patterns = [other_glob_patterns]
+                for other_glob_pattern in other_glob_patterns:
+                    if isinstance(other_glob_pattern, str):  # avoid non string objs
+                        logger.info("Processing glob pattern {}".format(
+                            other_glob_pattern))
+                        file_list.extend(
+                            glob.glob(
+                                os.path.join(
+                                    path_prefix, other_glob_pattern))
+                        )
 
-            # copy other files if necessary
-            if len(file_list) > 0:
-                for f in file_list:
-                    logger.info("File {} will be forwarded.".format(f))
-                    try:
-                        dest = os.getcwd()
-                        shutil.copy(f, dest)
-                    except Exception as exc:
-                        if ignore_errors:
-                            logger.warning("There was an error copying "
-                                        "'{}' to '{}', ignored:".format(
-                                            f, dest))
-                            logger.warning(exc)
-                        else:
+                # copy other files if necessary
+                if len(file_list) > 0:
+                    for f in file_list:
+                        logger.info("File {} will be forwarded.".format(f))
+                        try:
+                            dest = os.getcwd()
+                            shutil.copy(f, dest)
+                        except Exception as exc:
+                            if ignore_errors:
+                                logger.warning("There was an error copying "
+                                            "'{}' to '{}', ignored:".format(
+                                                f, dest))
+                                logger.warning(exc)
+                            else:
+                                raise exc
+
+                # find restart files as (src, dest) tuples:
+                restart_file_list = []
+
+                for glob_pattern, dest in zip(restart_file_glob_patterns,
+                                              restart_file_dests):
+                    restart_file_matches = glob.glob(os.path.join(
+                        path_prefix, glob_pattern))
+
+                    # determine most recent of restart files matches:
+                    if len(restart_file_matches) > 1:
+                        sorted_restart_file_matches = sorted(
+                            restart_file_matches, key=os.path.getmtime)  # sort by modification time
+                        logger.info("Several restart files {} (most recent last) "
+                                    "for glob pattern '{}'.".format(
+                                        glob_pattern,
+                                        sorted_restart_file_matches))
+                        logger.info("Modification times for those files: {}".format(
+                            [os.path.getmtime(f) for f in sorted_restart_file_matches]))
+                        logger.info("Most recent restart file '{}' will be copied "
+                                    "to '{}'.".format(
+                                        sorted_restart_file_matches[-1], dest))
+                        restart_file_list.append(
+                            (sorted_restart_file_matches[-1], dest))
+                    elif len(restart_file_matches) == 1:
+                        logger.info("One restart file '{}' for glob "
+                                    "pattern '{}' will be copied to '{}'.".format(
+                                        restart_file_matches[0],
+                                        glob_pattern, dest))
+                        restart_file_list.append(
+                            (restart_file_matches[0], dest))
+                    else:
+                        logger.info("No restart file!")
+                        if fizzle_on_no_restart_file:
+                             raise ValueError(
+                                "No restart file in {} for glob pattern {}".format(
+                                    path_prefix, glob_pattern))
+
+                # copy all identified restart files
+                if len(restart_file_list) > 0:
+                    for current_restart_file, dest in restart_file_list:
+                        current_restart_file_basename = os.path.basename(current_restart_file)
+                        logger.info("File {} will be forwarded.".format(
+                            current_restart_file_basename))
+                        try:
+                            shutil.copy(current_restart_file, dest)
+                        except Exception as exc:
+                            logger.error("There was an error copying from {} "
+                                         "to {}".format(
+                                            current_restart_file, dest))
                             raise exc
-
-            # find restart files as (src, dest) tuples:
-            restart_file_list = []
-
-            for glob_pattern, dest in zip(restart_file_glob_patterns,
-                                          restart_file_dests):
-                restart_file_matches = glob.glob(os.path.join(
-                    path_prefix, glob_pattern))
-
-                # determine most recent of restart files matches:
-                if len(restart_file_matches) > 1:
-                    sorted_restart_file_matches = sorted(
-                        restart_file_matches, key=os.path.getmtime)  # sort by modification time
-                    logger.info("Several restart files {} (most recent last) "
-                                "for glob pattern '{}'.".format(
-                                    glob_pattern,
-                                    sorted_restart_file_matches))
-                    logger.info("Modification times for those files: {}".format(
-                        [os.path.getmtime(f) for f in sorted_restart_file_matches]))
-                    logger.info("Most recent restart file '{}' will be copied "
-                                "to '{}'.".format(
-                                    sorted_restart_file_matches[-1], dest))
-                    restart_file_list.append(
-                        (sorted_restart_file_matches[-1], dest))
-                elif len(restart_file_matches) == 1:
-                    logger.info("One restart file '{}' for glob "
-                                "pattern '{}' will be copied to '{}'.".format(
-                                    restart_file_matches[0],
-                                    glob_pattern, dest))
-                    restart_file_list.append(
-                        (restart_file_matches[0], dest))
-                else:
-                    logger.info("No restart file!")
-                    if fizzle_on_no_restart_file:
-                         raise ValueError(
-                            "No restart file in {} for glob pattern {}".format(
-                                path_prefix, glob_pattern))
-
-            # copy all identified restart files
-            if len(restart_file_list) > 0:
-                for current_restart_file, dest in restart_file_list:
-                    current_restart_file_basename = os.path.basename(current_restart_file)
-                    logger.info("File {} will be forwarded.".format(
-                        current_restart_file_basename))
-                    try:
-                        shutil.copy(current_restart_file, dest)
-                    except Exception as exc:
-                        logger.error("There was an error copying from {} "
-                                     "to {}".format(
-                                        current_restart_file, dest))
-                        raise exc
 
             # distinguish between FireWorks and Workflows by top-level keys
             # fw: ['spec', 'fw_id', 'created_on', 'updated_on', 'name']
@@ -630,7 +629,7 @@ class RecoverTask(FiretaskBase):
                 _log_nested_dict(logger.debug, detour_wf.as_dict())
 
             # append restart fireworks if desired
-            if restart_wf_dict:
+            if recover:
                 # try to derive number of restart from fizzled parent
                 restart_count = None
                 if prev_job_info and ('spec' in prev_job_info):
@@ -712,6 +711,7 @@ class RecoverTask(FiretaskBase):
                     elif restart_wf is not None:  # and detour wf is None
                         detour_wf = restart_wf
 
+
                     recover_fw = Firework(
                         recover_ft,
                         spec=recover_fw_spec,  # inherit this Firework's spec
@@ -730,13 +730,13 @@ class RecoverTask(FiretaskBase):
                         "Workflow([*detour_wf.fws, *restart_wf.fws, recover_fw]):")
                     _log_nested_dict(logger.debug, detour_wf.as_dict())
                 else:
-                    logger.info(
-                        "Maximum number of {} restarts reached. ".format(
-                        max_restarts), "No further restart.")
+                    logger.warning(
+                        "Maximum number of {} restarts reached. "
+                        "No further restart.".format(max_restarts))
 
                 self.write_files_prev(detour_wf, fw_spec)
             else:
-                logger.warning("No restart file, no restart Fireworks appended.")
+                logger.warning("No restart Fireworks appended.")
 
             # if detour_fw given, append in any case:
             if isinstance(addition_wf_dict, dict):

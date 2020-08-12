@@ -125,6 +125,11 @@ def _log_dir(directory=os.curdir):
 
 class RecoverTasksTest(unittest.TestCase):
     def setUp(self):
+        dummy_ft = PyTask(func='print', args=['I am a dummy task'])
+        dummy_fw = Firework([dummy_ft], name='dummy_fw')
+        dummy_wf = Workflow([dummy_fw])
+
+        self.default_restart_wf_dict = dummy_wf.to_dict()
 
         self.default_task_spec = {
             'loglevel': logging.DEBUG,
@@ -143,12 +148,13 @@ class RecoverTasksTest(unittest.TestCase):
         os.chdir(self._previous_working_directory)
         self._tmpdir.cleanup()
 
-    def test_do_nothing(self):
+    def test_ignore_missing_restart_file(self):
         """Will run a recovery task that does nothing."""
         logger = logging.getLogger(__name__)
         logger.info("### {} ###".format(sys._getframe().f_code.co_name))
 
         task_spec = {
+            'restart_wf': self.default_restart_wf_dict,
             'fizzle_on_no_restart_file': False,
         }
         task_spec = dict_merge(self.default_task_spec, task_spec)
@@ -169,10 +175,9 @@ class RecoverTasksTest(unittest.TestCase):
         logger.debug("FWAction:")
         _log_nested_dict(fw_action.as_dict())
         additions = fw_action.additions
-        detours = fw_action.detours
+        # detours = fw_action.detours
 
         self.assertEqual(additions, [])
-        self.assertEqual(detours, [])
 
     def test_fizzle_on_no_restart_file(self):
         """Will run a recovery task that fizzles on no restart file."""
@@ -180,6 +185,7 @@ class RecoverTasksTest(unittest.TestCase):
         logger.info("### {} ###".format(sys._getframe().f_code.co_name))
 
         task_spec = {
+            'restart_wf': self.default_restart_wf_dict,
             'fizzle_on_no_restart_file': True,
         }
         task_spec = dict_merge(self.default_task_spec, task_spec)
@@ -203,6 +209,61 @@ class RecoverTasksTest(unittest.TestCase):
                          'No restart file in . for glob pattern *.restart[0-9]')
 
 
+    def test_do_nothing_at_previous_success(self):
+        """Will run a recovery task that does nothing."""
+        logger = logging.getLogger(__name__)
+        logger.info("### {} ###".format(sys._getframe().f_code.co_name))
+
+        task_spec = {
+            'restart_wf': self.default_restart_wf_dict,
+            'fizzle_on_no_restart_file': False,
+        }
+        task_spec = dict_merge(self.default_task_spec, task_spec)
+
+        fw_spec = {}
+        fw_spec = dict_merge(self.default_fw_spec, fw_spec)
+
+        logger.debug("Instantiate RecoverTask with '{}'".format(task_spec))
+        t = RecoverTask(**task_spec)
+        logger.debug("Run with fw_spec '{}'".format(fw_spec))
+        fw_action = t.run_task(fw_spec)
+        logger.debug("FWAction:")
+        _log_nested_dict(fw_action.as_dict())
+        detours = fw_action.detours
+        self.assertEqual(detours, [])
+
+    def test_do_nothing_at_maximum_numnber_of_restarts(self):
+        """Will run a recovery task that does nothing."""
+        logger = logging.getLogger(__name__)
+        logger.info("### {} ###".format(sys._getframe().f_code.co_name))
+
+        task_spec = {
+            'restart_wf': self.default_restart_wf_dict,
+            'fizzle_on_no_restart_file': False,
+            'max_restarts': 5,
+            'restart_counter': 'restart_count',
+        }
+        task_spec = dict_merge(self.default_task_spec, task_spec)
+
+        fw_spec = {
+            '_fizzled_parents': [{
+                'launches': [{'launch_dir': os.curdir}],
+                'name': 'dummy parent',
+                'fw_id': 1,
+                'spec': {'restart_count': 5},
+            }]
+        }
+        fw_spec = dict_merge(self.default_fw_spec, fw_spec)
+
+        logger.debug("Instantiate RecoverTask with '{}'".format(task_spec))
+        t = RecoverTask(**task_spec)
+        logger.debug("Run with fw_spec '{}'".format(fw_spec))
+        fw_action = t.run_task(fw_spec)
+        logger.debug("FWAction:")
+        _log_nested_dict(fw_action.as_dict())
+        detours = fw_action.detours
+        self.assertEqual(detours, [])
+
     def test_recover_single_restart_file(self):
         """Will run a recovery task that does nothing."""
         logger = logging.getLogger(__name__)
@@ -216,6 +277,7 @@ class RecoverTasksTest(unittest.TestCase):
         _log_dir()
 
         task_spec = {
+            'restart_wf': self.default_restart_wf_dict,
             'fizzle_on_no_restart_file': True,
             'restart_file_glob_patterns': '*_restart_file'
         }
@@ -275,6 +337,7 @@ class RecoverTasksTest(unittest.TestCase):
                       second_restart_file_stats.st_mtime_ns,))
 
         task_spec = {
+            'restart_wf': self.default_restart_wf_dict,
             'fizzle_on_no_restart_file': True,
             'restart_file_glob_patterns': '*_restart_file'
         }
@@ -362,6 +425,7 @@ class RecoverTasksTest(unittest.TestCase):
                       second_checkpoint_file_stats.st_mtime_ns,))
 
         task_spec = {
+            'restart_wf': self.default_restart_wf_dict,
             'fizzle_on_no_restart_file': True,
             'restart_file_glob_patterns': ['*_restart_file', '*_checkpoint_file'],
         }
@@ -413,6 +477,7 @@ class RecoverTasksTest(unittest.TestCase):
         _log_dir()
 
         task_spec = {
+            'restart_wf': self.default_restart_wf_dict,
             'fizzle_on_no_restart_file': False,
             'other_glob_patterns': ['some_file', 'some_*_file'],
         }
@@ -449,7 +514,7 @@ class RecoverTasksTest(unittest.TestCase):
         """Run a recovery task that returns a restart detour."""
         logger = logging.getLogger(__name__)
         logger.info("### {} ###".format(sys._getframe().f_code.co_name))
-
+        # the following restart_wf parameter...
         # +-----------------+     +-----------------+     +------------------+
         # | restart_wf root | --> | restart_wf body | --> | restart_wf leafs |
         # +-----------------+     +-----------------+     +------------------+
@@ -486,6 +551,15 @@ class RecoverTasksTest(unittest.TestCase):
         logger.debug("FWAction:")
         _log_nested_dict(fw_action.as_dict())
 
+        # ... must result in the following detour
+        # + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - +
+        # ' restart_wf                                                          '
+        # '                                                                     '
+        # ' +-----------------+     +-----------------+     +-----------------+ '     +------------+
+        # ' | restart_wf root | --> | restart_wf body | --> | restart_wf leaf | ' --> | recover_fw |
+        # ' +-----------------+     +-----------------+     +-----------------+ '     +------------+
+        # '                                                                     '
+        # + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - +
         detour = fw_action.detours[0]
         self.assertIsInstance(detour, Workflow)
 
@@ -506,6 +580,238 @@ class RecoverTasksTest(unittest.TestCase):
         self.assertEqual(len(detour.links[leaf_fw_id]), 1)
         recover_fw_id = detour.links[leaf_fw_id][0]
         self.assertEqual(detour.id_fw[recover_fw_id].name, 'recover_fw')
+
+    def test_detour_wf_insertion(self):
+        """Run a recovery task that returns a detour."""
+        logger = logging.getLogger(__name__)
+        logger.info("### {} ###".format(sys._getframe().f_code.co_name))
+
+        # The following restart_wf parameter...
+        # +-----------------+     +-----------------+     +------------------+
+        # | restart_wf root | --> | restart_wf body | --> | restart_wf leafs |
+        # +-----------------+     +-----------------+     +------------------+
+        dummy_ft = PyTask(func='print', args=['I am a dummy task'])
+        restart_root_fw = Firework([dummy_ft], name='restart_wf root')
+        restart_body_fw = Firework([dummy_ft], name='restart_wf body', parents=[restart_root_fw])
+        restart_leaf_fw = Firework([dummy_ft], name='restart_wf leaf', parents=[restart_body_fw])
+
+        restart_wf = Workflow([restart_root_fw, restart_body_fw, restart_leaf_fw])
+
+        logger.debug("Restart wf:")
+        _log_nested_dict(restart_wf.as_dict())
+
+        # ...together with the following detour_wf parameter...
+        # +----------------+     +-----------------+     +------------------+
+        # | detour_wf root | --> | detour_wf body | --> | detour_wf leafs |
+        # +----------------+     +-----------------+     +------------------+
+        detour_root_fw = Firework([dummy_ft], name='detour_wf root')
+        detour_body_fw = Firework([dummy_ft], name='detour_wf body', parents=[detour_root_fw])
+        detour_leaf_fw = Firework([dummy_ft], name='detour_wf leaf', parents=[detour_body_fw])
+
+        detour_wf = Workflow([detour_root_fw, detour_body_fw, detour_leaf_fw])
+
+        logger.debug("Restart wf:")
+        _log_nested_dict(detour_wf.as_dict())
+
+        task_spec = {
+            'restart_wf': restart_wf.as_dict(),
+            'detour_wf': detour_wf.as_dict(),
+            'fizzle_on_no_restart_file': False,
+            'repeated_recover_fw_name': 'recover_fw',
+        }
+        task_spec = dict_merge(self.default_task_spec, task_spec)
+
+        fw_spec = {
+            '_job_info': [{
+                'launch_dir': 'dummy_prev_launch',
+                'name': 'dummy parent',
+                'fw_id': 1,
+            }]
+        }
+        fw_spec = dict_merge(self.default_fw_spec, fw_spec)
+
+        logger.debug("Instantiate RecoverTask with '{}'".format(task_spec))
+        t = RecoverTask(**task_spec)
+        logger.debug("Run with fw_spec '{}'".format(fw_spec))
+        fw_action = t.run_task(fw_spec)
+        logger.debug("FWAction:")
+        _log_nested_dict(fw_action.as_dict())
+
+        # ... must result in the following detour:
+        # + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - +
+        # ' detour_wf                                                           '
+        # '                                                                     '
+        # ' +-----------------+     +-----------------+     +-----------------+ '     +------------+
+        # ' | detour_wf root  | --> | detour_wf body  | --> | detour_wf leaf  | ' --> | recover_fw |
+        # ' +-----------------+     +-----------------+     +-----------------+ '     +------------+
+        # '                                                                     '
+        # + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - +
+        #                                                                               ^
+        #                                                                               |
+        #                                                                               |
+        # + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - +       |
+        # ' restart_wf                                                          '       |
+        # '                                                                     '       |
+        # ' +-----------------+     +-----------------+     +-----------------+ '       |
+        # ' | restart_wf root | --> | restart_wf body | --> | restart_wf leaf | ' ------+
+        # ' +-----------------+     +-----------------+     +-----------------+ '
+        # '                                                                     '
+        # + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - +
+        detour = fw_action.detours[0]
+        self.assertIsInstance(detour, Workflow)
+
+        self.assertEqual(len(detour.leaf_fw_ids), 1)
+        self.assertEqual(len(detour.root_fw_ids), 2)
+
+        # roots
+        root_fw_names = {detour.id_fw[fw_id].name: fw_id for fw_id in detour.root_fw_ids}
+
+        self.assertIn('detour_wf root', root_fw_names)
+        self.assertIn('restart_wf root', root_fw_names)
+
+        # restart_wf
+        restart_root_fw_children = detour.links[root_fw_names['restart_wf root']]
+        self.assertEqual(len(restart_root_fw_children), 1)
+        restart_body_fw_id = restart_root_fw_children[0]
+        self.assertEqual(detour.id_fw[restart_body_fw_id].name, 'restart_wf body')
+
+        self.assertEqual(len(detour.links[restart_body_fw_id]), 1)
+        restart_leaf_fw_id = detour.links[restart_body_fw_id][0]
+        self.assertEqual(detour.id_fw[restart_leaf_fw_id].name, 'restart_wf leaf')
+
+        self.assertEqual(len(detour.links[restart_leaf_fw_id]), 1)
+        recover_fw_id = detour.links[restart_leaf_fw_id][0]
+        self.assertEqual(detour.id_fw[recover_fw_id].name, 'recover_fw')
+
+        # detour_wf
+        detour_root_fw_children = detour.links[root_fw_names['detour_wf root']]
+        self.assertEqual(len(detour_root_fw_children), 1)
+        detour_body_fw_id = detour_root_fw_children[0]
+        self.assertEqual(detour.id_fw[detour_body_fw_id].name, 'detour_wf body')
+
+        self.assertEqual(len(detour.links[detour_body_fw_id]), 1)
+        detour_leaf_fw_id = detour.links[detour_body_fw_id][0]
+        self.assertEqual(detour.id_fw[detour_leaf_fw_id].name, 'detour_wf leaf')
+
+        self.assertEqual(len(detour.links[detour_leaf_fw_id]), 1)
+        same_recover_fw_id = detour.links[detour_leaf_fw_id][0]
+        self.assertEqual(recover_fw_id, same_recover_fw_id)
+
+    def test_addition_wf_insertion(self):
+        """Run a recovery task that returns a detour."""
+        logger = logging.getLogger(__name__)
+        logger.info("### {} ###".format(sys._getframe().f_code.co_name))
+
+        # The following restart_wf parameter...
+        # +-----------------+     +-----------------+     +------------------+
+        # | restart_wf root | --> | restart_wf body | --> | restart_wf leafs |
+        # +-----------------+     +-----------------+     +------------------+
+        dummy_ft = PyTask(func='print', args=['I am a dummy task'])
+        restart_root_fw = Firework([dummy_ft], name='restart_wf root')
+        restart_body_fw = Firework([dummy_ft], name='restart_wf body', parents=[restart_root_fw])
+        restart_leaf_fw = Firework([dummy_ft], name='restart_wf leaf', parents=[restart_body_fw])
+
+        restart_wf = Workflow([restart_root_fw, restart_body_fw, restart_leaf_fw])
+
+        logger.debug("Restart wf:")
+        _log_nested_dict(restart_wf.as_dict())
+
+        # ...together with the following addition_wf parameter...
+        # +----------------+     +-----------------+     +------------------+
+        # | addition_wf root | --> | addition_wf body | --> | addition_wf leafs |
+        # +----------------+     +-----------------+     +------------------+
+        addition_root_fw = Firework([dummy_ft], name='addition_wf root')
+        addition_body_fw = Firework([dummy_ft], name='addition_wf body', parents=[addition_root_fw])
+        addition_leaf_fw = Firework([dummy_ft], name='addition_wf leaf', parents=[addition_body_fw])
+
+        addition_wf = Workflow([addition_root_fw, addition_body_fw, addition_leaf_fw])
+
+        logger.debug("Restart wf:")
+        _log_nested_dict(addition_wf.as_dict())
+
+        task_spec = {
+            'restart_wf': restart_wf.as_dict(),
+            'addition_wf': addition_wf.as_dict(),
+            'fizzle_on_no_restart_file': False,
+            'repeated_recover_fw_name': 'recover_fw',
+        }
+        task_spec = dict_merge(self.default_task_spec, task_spec)
+
+        fw_spec = {
+            '_job_info': [{
+                'launch_dir': 'dummy_prev_launch',
+                'name': 'dummy parent',
+                'fw_id': 1,
+            }]
+        }
+        fw_spec = dict_merge(self.default_fw_spec, fw_spec)
+
+        logger.debug("Instantiate RecoverTask with '{}'".format(task_spec))
+        t = RecoverTask(**task_spec)
+        logger.debug("Run with fw_spec '{}'".format(fw_spec))
+        fw_action = t.run_task(fw_spec)
+        logger.debug("FWAction:")
+        _log_nested_dict(fw_action.as_dict())
+
+        # ... must result in the following addition:
+        # + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -+
+        # ' addition_wf                                                            '
+        # '                                                                        '
+        # ' +------------------+     +------------------+     +------------------+ '
+        # ' | addition_wf root | --> | addition_wf body | --> | addition_wf leaf | '
+        # ' +------------------+     +------------------+     +------------------+ '
+        # '                                                                        '
+        # + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -+
+        #
+        # + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - +
+        # ' restart_wf                                                          '
+        # '                                                                     '
+        # ' +-----------------+     +-----------------+     +-----------------+ '    +------------+
+        # ' | restart_wf root | --> | restart_wf body | --> | restart_wf leaf | '--> | recover_fw |
+        # ' +-----------------+     +-----------------+     +-----------------+ '    +------------+
+        # '                                                                     '
+        # + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - +
+
+        detour = fw_action.detours[0]
+        self.assertIsInstance(detour, Workflow)
+
+        self.assertEqual(len(detour.leaf_fw_ids), 1)
+        self.assertEqual(len(detour.root_fw_ids), 1)
+
+        root_fw_id = detour.root_fw_ids[0]
+        self.assertEqual(detour.id_fw[root_fw_id].name, 'restart_wf root')
+
+        self.assertEqual(len(detour.links[root_fw_id]), 1)
+        body_fw_id = detour.links[root_fw_id][0]
+        self.assertEqual(detour.id_fw[body_fw_id].name, 'restart_wf body')
+
+        self.assertEqual(len(detour.links[body_fw_id]), 1)
+        leaf_fw_id = detour.links[body_fw_id][0]
+        self.assertEqual(detour.id_fw[leaf_fw_id].name, 'restart_wf leaf')
+
+        self.assertEqual(len(detour.links[leaf_fw_id]), 1)
+        recover_fw_id = detour.links[leaf_fw_id][0]
+        self.assertEqual(detour.id_fw[recover_fw_id].name, 'recover_fw')
+
+
+        addition = fw_action.additions[0]
+        self.assertIsInstance(addition, Workflow)
+
+        self.assertEqual(len(addition.leaf_fw_ids), 1)
+        self.assertEqual(len(addition.root_fw_ids), 1)
+
+        root_fw_id = addition.root_fw_ids[0]
+        self.assertEqual(addition.id_fw[root_fw_id].name, 'addition_wf root')
+
+        self.assertEqual(len(addition.links[root_fw_id]), 1)
+        body_fw_id = addition.links[root_fw_id][0]
+        self.assertEqual(addition.id_fw[body_fw_id].name, 'addition_wf body')
+
+        self.assertEqual(len(addition.links[body_fw_id]), 1)
+        leaf_fw_id = addition.links[body_fw_id][0]
+        self.assertEqual(addition.id_fw[leaf_fw_id].name, 'addition_wf leaf')
+
+        self.assertEqual(len(addition.links[leaf_fw_id]), 0)
 
 if __name__ == '__main__':
     unittest.main()
