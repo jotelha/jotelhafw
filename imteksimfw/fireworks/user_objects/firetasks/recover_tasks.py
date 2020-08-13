@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# cmd_tasks.py
+# recover_tasks.py
 #
 # Copyright (C) 2020 IMTEK Simulation
 # Author: Johannes Hoermann, johannes.hoermann@imtek.uni-freiburg.de
@@ -37,7 +37,7 @@ from contextlib import ExitStack
 
 from fireworks.fw_config import FW_LOGGING_FORMAT
 from fireworks.utilities.fw_serializers import ENCODING_PARAMS
-from fireworks.utilities.dict_mods import get_nested_dict_value, set_nested_dict_value
+from fireworks.utilities.dict_mods import get_nested_dict_value, set_nested_dict_value, apply_mod
 from fireworks.core.firework import FWAction, FiretaskBase, Firework, Workflow
 
 from imteksimfw.fireworks.utilities.logging import LoggingContext
@@ -49,12 +49,15 @@ __date__ = 'August 10, 2020'
 
 DEFAULT_FORMATTER = logging.Formatter(FW_LOGGING_FORMAT)
 
+
 def _log_nested_dict(log_func, dct):
     for l in json.dumps(dct, indent=2, default=str).splitlines():
         log_func(l)
 
+
 # from https://gist.github.com/angstwad/bf22d1822c38a92ec0a9
-def dict_merge(dct, merge_dct, add_keys=True):
+def dict_merge(dct, merge_dct, add_keys=True,
+               exclusions={}, merge_exclusions={}):
     """ Recursive dict merge. Inspired by :meth:``dict.update()``, instead of
     updating only top-level keys, dict_merge recurses down into dicts nested
     to an arbitrary depth, updating keys. The ``merge_dct`` is merged into
@@ -64,30 +67,80 @@ def dict_merge(dct, merge_dct, add_keys=True):
     arguments untouched.
 
     The optional argument ``add_keys``, determines whether keys which are
-    present in ``merge_dict`` but not ``dct`` should be included in the
+    present in ``merge_dct`` but not ``dct`` should be included in the
     new dict.
 
     Args:
         dct (dict) onto which the merge is executed
         merge_dct (dict): dct merged into dct
         add_keys (bool): whether to add new keys
+        exclusions (dict): any such key found within 'dct' will be removed.
+                               It can, however, be reintroduced if present in
+                               'merge_dct' and 'add_keys' is set.
+        merge_exclusions (dict): any such key found within 'merge_dct'
+                                     will be ignored. Such keys allready
+                                     present within 'dct' are not touched.
 
     Returns:
         dict: updated dict
     """
+    logger = logging.getLogger(__name__)
+
+    merge_dct = merge_dct.copy()
     dct = dct.copy()
+
+    logger.debug("Merge 'merge_dct'...")
+    _log_nested_dict(logger.debug, merge_dct)
+    logger.debug("... into 'dct'...")
+    _log_nested_dict(logger.debug, dct)
+    logger.debug("... with 'exclusions'...")
+    _log_nested_dict(logger.debug, exclusions)
+    logger.debug("... and 'merge_exclusions'...")
+    _log_nested_dict(logger.debug, merge_exclusions)
+
+    for k in exclusions:
+        if (k in dct) and (dct[k] is True):
+            logger.debug("Key '{}' excluded from dct.".format(k))
+            del dct[k]
+
     if not add_keys:
         merge_dct = {
-            k: merge_dct[k]
-            for k in set(dct).intersection(set(merge_dct))
-        }
+            k: merge_dct[k] for k in set(dct).intersection(set(merge_dct))}
+        logger.debug(
+            "Not merging keys only in 'merge_dict', only merging {}.".format(
+            merge_dct.keys()))
+
+    for k in dct.keys():
+        if isinstance(dct[k], dict) and k not in merge_dct:
+            merge_dct[k] = {}
 
     for k, v in merge_dct.items():
-        if (k in dct and isinstance(dct[k], dict)
-                and isinstance(v, collections.Mapping)):
-            dct[k] = dict_merge(dct[k], v, add_keys=add_keys)
+        if k in exclusions:
+            lower_level_exclusions = exclusions[k]
+            logger.debug("Key '{}' included in dct, but exclusions exist for nested keys.".format(k))
         else:
-            dct[k] = v
+            lower_level_exclusions = {}
+            logger.debug("Key '{}' included in dct.".format(k))
+
+        if (k in dct and isinstance(dct[k], dict)
+            and isinstance(v, collections.Mapping)):
+            if k not in merge_exclusions:  # no exception rule for this field
+                logger.debug("Key '{}' included in merge.".format(k))
+                dct[k] = dict_merge(dct[k], v, add_keys=add_keys,
+                                    exclusions=lower_level_exclusions)
+            elif merge_exclusions[k] is not True:  # exception rule for nested fields
+                logger.debug("Key '{}' included in merge, but exclusions exist for nested keys.".format(k))
+                dct[k] = dict_merge(dct[k], v, add_keys=add_keys,
+                                    exclusions=lower_level_exclusions,
+                                    merge_exclusions=merge_exclusions[k])
+            else:
+                logger.debug("Key '{}' excluded from merge.".format(k))
+        else:
+            if k not in merge_exclusions:  # no exception rule for this field
+                logger.debug("Key '{}' included in merge.".format(k))
+                dct[k] = v
+            else:
+                logger.debug("Key '{}' excluded from merge.".format(k))
 
     return dct
 
@@ -103,6 +156,54 @@ def from_fw_spec(param, fw_spec):
     else:
         ret = param
     return ret
+
+
+# we apply update_spec and mod_spec here a priori because additions and detours
+# won't be touched by the default mechanism in fireworks.core.firework
+def apply_mod_spec(wf, action):
+    """Update the spec of the children FireWorks using DictMod language."""
+    fw_ids = wf.leaf_fw_ids
+    updated_ids = []
+
+    if action.update_spec and action.propagate:
+        # Traverse whole sub-workflow down to leaves.
+        visited_cfid = set()  # avoid double-updating for diamond deps
+
+        def recursive_update_spec(fw_ids):
+            for cfid in fw_ids:
+                if cfid not in visited_cfid:
+                    visited_cfid.add(cfid)
+                    wf.id_fw[cfid].spec.update(action.update_spec)
+                    updated_ids.append(cfid)
+                    recursive_update_spec(wf.links[cfid])
+
+        recursive_update_spec(fw_ids)
+    elif action.update_spec:
+        # Update only direct children.
+        for cfid in fw_ids:
+            wf.id_fw[cfid].spec.update(action.update_spec)
+            updated_ids.append(cfid)
+
+    if action.mod_spec and action.propagate:
+        visited_cfid = set()
+
+        def recursive_mod_spec(fw_ids):
+            for cfid in fw_ids:
+                if cfid not in visited_cfid:
+                    visited_cfid.add(cfid)
+                    for mod in action.mod_spec:
+                        apply_mod(mod, wf.id_fw[cfid].spec)
+                    updated_ids.append(cfid)
+                    recursive_mod_spec(cfid)
+
+        recursive_mod_spec(fw_ids)
+    elif action.mod_spec:
+        for cfid in fw_ids:
+            for mod in action.mod_spec:
+                apply_mod(mod, wf.id_fw[cfid].spec)
+            updated_ids.append(cfid)
+
+    return updated_ids
 
 
 class RecoverTask(FiretaskBase):
@@ -201,18 +302,24 @@ class RecoverTask(FiretaskBase):
             if None. Default: None
 
     Optional parameters:
-        - detour_wf (dict): Workflow or single FireWork to always append as
-            a detour, independent on parent's success (i.e. post-processing).
-            Task will not append anything if None. Default: None
         - addition_wf (dict): Workflow or single FireWork to always append as
             an addition, independent on parent's success (i.e. storage).
             Default: None.
+        - detour_wf (dict): Workflow or single FireWork to always append as
+            a detour, independent on parent's success (i.e. post-processing).
+            Task will not append anything if None. Default: None
 
+        - apply_mod_spec_to_addition_wf (bool): Apply FWAction's update_spec and
+            mod_spec to 'addition_wf', same as for all other regular childern
+            of this task's FireWork. Default: True.
+        - apply_mod_spec_to_detour_wf (bool): Apply FWAction's update_spec and
+            mod_spec to 'detour_wf', same as for all other regular childern
+            of this task's FireWork. Default: True.
         - default_restart_file (str): Name of restart file. Most recent restart
             file found in fizzled parent via 'restart_file_glob_patterns'
             will be copied to new launchdir under this name. Default: None
         - fizzle_on_no_restart_file (bool): Default: True
-        - fw_spec_to_exclude ([str]): All insertions will inherit the current
+        - fw_spec_to_exclude ([str]): recover FireWork will inherit the current
             FireWork's 'fw_spec', stripped of top-level fields specified here.
             Default: ['_job_info', '_fw_env', '_files_prev', '_fizzled_parents']
         - ignore_errors (bool): Ignore errors when copying files. Default: True
@@ -231,6 +338,19 @@ class RecoverTask(FiretaskBase):
             If more than one file matches a glob pattern in the list, only the
             most recent macth per list entry is recovered.
             Default: ['*.restart[0-9]']
+        - superpose_restart_on_parent_fw_spec (bool):
+            Try to pull (fizzled) parent's fw_spec and merge with fw_spec of
+            all FireWorks within restart_wf, with latter enjoying precedence.
+            Default: False.
+        - superpose_addition_on_parent_fw_spec (bool):
+            Try to pull (fizzled) parent's fw_spec and merge with fw_spec of
+            all FireWorks within addition_wf, with latter enjoying precedence.
+            Default: False.
+        - superpose_detour_on_parent_fw_spec (bool):
+            Try to pull (fizzled) parent's fw_spec and merge with fw_spec of
+            all FireWorks within detour_wf, with latter enjoying precedence.
+            Default: False.
+            For above's superpose oprions, fw_spec_to_exclude applies as well.
 
         - output (str): spec key that will be used to pass output to child
             fireworks. Default: None
@@ -283,7 +403,8 @@ class RecoverTask(FiretaskBase):
         "detour_wf",
         "addition_wf",
 
-        "default_restart_file",
+        "apply_mod_spec_to_addition_wf",
+        "apply_mod_spec_to_detour_wf",
         "fizzle_on_no_restart_file",
         "fw_spec_to_exclude",
         "ignore_errors",
@@ -292,6 +413,10 @@ class RecoverTask(FiretaskBase):
         "repeated_recover_fw_name",
         "restart_counter",
         "restart_file_glob_patterns",
+        "restart_file_dests",
+        "superpose_restart_on_parent_fw_spec",
+        "superpose_addition_on_parent_fw_spec",
+        "superpose_detour_on_parent_fw_spec",
 
         "stored_data",
         "output",
@@ -301,24 +426,40 @@ class RecoverTask(FiretaskBase):
         "store_stdlog",
         "loglevel"]
 
-    def appendable_wf_from_dict(self, obj_dict):
+    def appendable_wf_from_dict(self, obj_dict, base_spec=None, exclusions={}):
         """Creates Workflow from a Workflow or single FireWork dict description.
 
-        Sets _files_prev in roots of new workflow."""
+        If specified, use base_spec for all fw_spec and superpose individual
+        specs on top."""
         logger = logging.getLogger(__name__)
 
-        # if detour_fw given, append in any case:
-        logger.debug("Initial dict:")
+        logger.debug("Initial obj_dict:")
         _log_nested_dict(logger.debug, obj_dict)
+
+        if base_spec:
+            logger.debug("base_spec:")
+            _log_nested_dict(logger.debug, base_spec)
+
+        if exclusions:
+            logger.debug("exclusions:")
+            _log_nested_dict(logger.debug, exclusions)
+
         if isinstance(obj_dict, dict):
             # in case of single Fireworks:
             if "spec" in obj_dict:
                 # append firework (defined as dict):
+                if base_spec:
+                    obj_dict["spec"] = dict_merge(base_spec, obj_dict["spec"],
+                                                  exclusions=exclusions)
                 fw = Firework.from_dict(obj_dict)
                 fw.fw_id = self.consecutive_fw_id
                 self.consecutive_fw_id -= 1
                 wf = Workflow([fw])
             else:   # if no single fw, then wf
+                if base_spec:
+                    for fw_dict in obj_dict["fws"]:
+                        fw_dict["spec"] = dict_merge(base_spec, fw_dict["spec"],
+                                                     exclusions=exclusions)
                 wf = Workflow.from_dict(obj_dict)
                 remapped_fw_ids = {}
                 # do we have to reassign fw_ids? yes
@@ -335,26 +476,25 @@ class RecoverTask(FiretaskBase):
 
         return wf
 
+    # modeled to match original snippet from fireworks.core.rocket:
 
-        # modeled to match original snippet from fireworks.core.rocket:
+    # if my_spec.get("_files_out"):
+    #     # One potential area of conflict is if a fw depends on two fws
+    #     # and both fws generate the exact same file. That can lead to
+    #     # overriding. But as far as I know, this is an illogical use
+    #     # of a workflow, so I can't see it happening in normal use.
+    #     for k, v in my_spec.get("_files_out").items():
+    #         files = glob.glob(os.path.join(launch_dir, v))
+    #         if files:
+    #             filepath = sorted(files)[-1]
+    #             fwaction.mod_spec.append({
+    #                 "_set": {"_files_prev->{:s}".format(k): filepath}
+    #             })
 
-        # if my_spec.get("_files_out"):
-        #     # One potential area of conflict is if a fw depends on two fws
-        #     # and both fws generate the exact same file. That can lead to
-        #     # overriding. But as far as I know, this is an illogical use
-        #     # of a workflow, so I can't see it happening in normal use.
-        #     for k, v in my_spec.get("_files_out").items():
-        #         files = glob.glob(os.path.join(launch_dir, v))
-        #         if files:
-        #             filepath = sorted(files)[-1]
-        #             fwaction.mod_spec.append({
-        #                 "_set": {"_files_prev->{:s}".format(k): filepath}
-        #             })
-
-        # if the curret fw yields outfiles, then check whether according
-        # '_files_prev' must be written for newly created insertions
-
+    # if the curret fw yields outfiles, then check whether according
+    # '_files_prev' must be written for newly created insertions
     def write_files_prev(self, wf, fw_spec):
+        "Sets _files_prev in roots of new workflow according to _files_out in fw_spec."
         logger = logging.getLogger(__name__)
 
         if fw_spec.get("_files_out"):
@@ -388,6 +528,14 @@ class RecoverTask(FiretaskBase):
         detour_wf_dict = self.get('detour_wf', None)
         addition_wf_dict = self.get('addition_wf', None)
 
+        apply_mod_spec_to_addition_wf = self.get('apply_mod_spec_to_addition_wf', True)
+        apply_mod_spec_to_addition_wf = from_fw_spec(apply_mod_spec_to_addition_wf,
+                                                     fw_spec)
+
+        apply_mod_spec_to_detour_wf = self.get('apply_mod_spec_to_detour_wf', True)
+        apply_mod_spec_to_detour_wf = from_fw_spec(apply_mod_spec_to_detour_wf,
+                                                   fw_spec)
+
         fizzle_on_no_restart_file = self.get('fizzle_on_no_restart_file', True)
         fizzle_on_no_restart_file = from_fw_spec(fizzle_on_no_restart_file,
                                                  fw_spec)
@@ -416,6 +564,21 @@ class RecoverTask(FiretaskBase):
         restart_file_dests = self.get('restart_file_dests', None)
         restart_file_dests = from_fw_spec(restart_file_dests, fw_spec)
 
+        superpose_restart_on_parent_fw_spec = self.get(
+            'superpose_restart_on_parent_fw_spec', False)
+        superpose_restart_on_parent_fw_spec = from_fw_spec(
+            superpose_restart_on_parent_fw_spec, fw_spec)
+
+        superpose_addition_on_parent_fw_spec = self.get(
+            'superpose_addition_on_parent_fw_spec', False)
+        superpose_addition_on_parent_fw_spec = from_fw_spec(
+            superpose_addition_on_parent_fw_spec, fw_spec)
+
+        superpose_detour_on_parent_fw_spec = self.get(
+            'superpose_detour_on_parent_fw_spec', False)
+        superpose_detour_on_parent_fw_spec = from_fw_spec(
+            superpose_detour_on_parent_fw_spec, fw_spec)
+
         fw_spec_to_exclude = self.get('fw_spec_to_exclude',
                                       [
                                         '_job_info',
@@ -423,6 +586,10 @@ class RecoverTask(FiretaskBase):
                                         '_files_prev',
                                         '_fizzled_parents',
                                       ])
+        if isinstance(fw_spec_to_exclude, list):
+            fw_spec_to_exclude_dict = {k: True for k in fw_spec_to_exclude}
+        else:  # supposed to be dict then
+            fw_spec_to_exclude_dict = fw_spec_to_exclude
 
         # generic parameters
         stored_data = self.get('stored_data', False)
@@ -621,7 +788,18 @@ class RecoverTask(FiretaskBase):
 
             # if detour_fw given, append in any case:
             if isinstance(detour_wf_dict, dict):
-                detour_wf = self.appendable_wf_from_dict(detour_wf_dict)
+                detour_wf_base_spec = None
+                if superpose_detour_on_parent_fw_spec:
+                    if "spec" in prev_job_info:
+                        detour_wf_base_spec = prev_job_info["spec"]
+                    else:
+                        logger.warning("Superposition of detour_wf's "
+                                       "fw_spec onto parent's "
+                                       "fw_spec desired, but not parent"
+                                       "fw_spec recovered.")
+                detour_wf = self.appendable_wf_from_dict(
+                    detour_wf_dict, base_spec=detour_wf_base_spec,
+                    exclusions=fw_spec_to_exclude_dict)
 
             if detour_wf is not None:
                 logger.debug(
@@ -661,7 +839,18 @@ class RecoverTask(FiretaskBase):
                         "This is #{:d} of at most {:d} restarts.".format(
                             restart_count+1, max_restarts))
 
-                    restart_wf = self.appendable_wf_from_dict(restart_wf_dict)
+                    restart_wf_base_spec = None
+                    if superpose_restart_on_parent_fw_spec:
+                        if "spec" in prev_job_info:
+                            restart_wf_base_spec = prev_job_info["spec"]
+                        else:
+                            logger.warning("Superposition of restart_wf's "
+                                           "fw_spec onto parent's "
+                                           "fw_spec desired, but not parent"
+                                           "fw_spec recovered.")
+                    restart_wf = self.appendable_wf_from_dict(
+                        restart_wf_dict, base_spec=restart_wf_base_spec,
+                        exclusions=fw_spec_to_exclude_dict)
 
                     # apply updates to fw_spec
                     for fws in restart_wf.fws:
@@ -678,8 +867,10 @@ class RecoverTask(FiretaskBase):
                     _log_nested_dict(logger.debug, recover_ft.as_dict())
 
                     # repeated recovery firework inherits the following specs:
-                    recover_fw_spec = {key: fw_spec[key] for key in fw_spec
-                                       if key not in fw_spec_to_exclude}
+                    # recover_fw_spec = {key: fw_spec[key] for key in fw_spec
+                    #                   if key not in fw_spec_to_exclude}
+                    recover_fw_spec = dict_merge({}, fw_spec,
+                                                 exclusions=fw_spec_to_exclude_dict)
                     logger.debug("propagating fw_spec = {} to subsequent "
                                  "recover_fw.".format(recover_fw_spec))
 
@@ -711,7 +902,6 @@ class RecoverTask(FiretaskBase):
                     elif restart_wf is not None:  # and detour wf is None
                         detour_wf = restart_wf
 
-
                     recover_fw = Firework(
                         recover_ft,
                         spec=recover_fw_spec,  # inherit this Firework's spec
@@ -738,9 +928,19 @@ class RecoverTask(FiretaskBase):
             else:
                 logger.warning("No restart Fireworks appended.")
 
-            # if detour_fw given, append in any case:
             if isinstance(addition_wf_dict, dict):
-                addition_wf = self.appendable_wf_from_dict(addition_wf_dict)
+                addition_wf_base_spec = None
+                if superpose_addition_on_parent_fw_spec:
+                    if "spec" in prev_job_info:
+                        addition_wf_base_spec = prev_job_info["spec"]
+                    else:
+                        logger.warning("Superposition of addition_wf's "
+                                       "fw_spec onto parent's "
+                                       "fw_spec desired, but not parent"
+                                       "fw_spec recovered.")
+                addition_wf = self.appendable_wf_from_dict(
+                    addition_wf_dict, base_spec=addition_wf_base_spec,
+                    exclusions=fw_spec_to_exclude_dict)
                 self.write_files_prev(addition_wf, fw_spec)
 
         # end of ExitStack context
@@ -749,18 +949,27 @@ class RecoverTask(FiretaskBase):
             stdlog_stream.flush()
             output['stdlog'] = stdlog_stream.getvalue()
 
-        fw_action = FWAction(
-            additions=addition_wf,
-            detours=detour_wf)
+        fw_action = FWAction()
 
         if stored_data:
             fw_action.stored_data = output
 
-        # 'propagate' only development feature for now
         if hasattr(fw_action, 'propagate') and propagate:
             fw_action.propagate = propagate
 
         if output_key:  # inject into fw_spec
             fw_action.mod_spec = [{dict_mod: {output_key: output}}]
+
+        if addition_wf and apply_mod_spec_to_addition_wf:
+            apply_mod_spec(addition_wf, fw_action)
+
+        if detour_wf and apply_mod_spec_to_detour_wf:
+            apply_mod_spec(detour_wf, fw_action)
+
+        if addition_wf:
+            fw_action.additions = [addition_wf]
+
+        if detour_wf:
+            fw_action.detours = [detour_wf]
 
         return fw_action
