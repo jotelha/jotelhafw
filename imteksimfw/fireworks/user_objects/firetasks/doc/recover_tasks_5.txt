@@ -1,0 +1,17 @@
+# Graph::Easy v0.76 input file
+graph { flow: east; }
+
+( detour_wf
+  [ detour_wf roots ] { origin: restart_wf roots; offset: 0,-2; } -> { start: east; end: west; } [ detour_wf leafs ] { label: "leaf(s)" }
+) {
+  border-style: dashed;
+  }
+
+( restart_wf
+  [ restart_wf roots ] -> { start: east; end: west; } [ restart_wf leafs ] { label: "leaf(s)"; origin: restart_wf roots; offset: 2,0; }
+) {
+  border-style: dashed;
+  }
+
+[ detour_wf leafs ] -> { start: east; end: north; } [ 2nd recovery fw ] { origin: restart_wf leafs; offset: 2,0; }
+[ restart_wf leafs ] -> { start: east; end: west; } [ 2nd recovery fw ]

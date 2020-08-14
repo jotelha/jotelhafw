@@ -1,0 +1,4 @@
+# Graph::Easy v0.76 input file
+graph { flow: east; }
+
+[ detour_wf root ] -> { start: east; end: west; } [ detour_wf body ] -> { start: east; end: west; } [ detour_wf leafs ]

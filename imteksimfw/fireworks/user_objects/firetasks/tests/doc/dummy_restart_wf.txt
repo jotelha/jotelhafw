@@ -1,0 +1,4 @@
+# Graph::Easy v0.76 input file
+graph { flow: east; }
+
+[ restart_wf root ] -> { start: east; end: west; } [ restart_wf body ] -> { start: east; end: west; } [ restart_wf leafs ]

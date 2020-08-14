@@ -1,0 +1,4 @@
+# Graph::Easy v0.76 input file
+graph { flow: east; }
+
+[ parent ] -> { start: east; end: west } [ recovery fw ] -> { start: east; end: west; } [ child ] { label: "child(ren)" }

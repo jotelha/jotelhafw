@@ -1,0 +1,26 @@
+# Graph::Easy v0.76 input file
+graph { flow: east; }
+
+( successfull restart_wf
+  [ anchor ] { label: "..."; border-style: none; }--> { start: east; end: west; } [ restart_wf leafs ] { label: "leaf(s)"; origin: anchor; offset: 2,0;  }
+) {
+  border-style: dashed;
+  }
+   
+[ restart_wf leafs ] -> { start: east; end: west; } [ last recovery fw ] { origin: restart_wf leafs; offset: 2,0; }
+[ last recovery fw ] -> { start: east; end: west; } [ detour_wf roots ]  { label: "root(s)" }
+[ last recovery fw ] -> { start: south; end: west; } [ addition_wf roots ]  { label: "root(s)" }
+
+( detour_wf
+  [ detour_wf roots ] { origin: last recovery fw; offset: 2,0; } -> { start: east; end: west; } [ detour_wf leafs ] { label: "leaf(s)"; origin: detour_wf roots; offset: 2,0; }
+) {
+  border-style: dashed;
+  }
+
+( addition_wf
+  [ addition_wf roots ] { origin: detour_wf roots; offset: 0,2; } -> { start: east; end: west; } [ addition_wf leafs ] { label: "leaf(s)" }
+) {
+  border-style: dashed;
+  }
+
+[ detour_wf leafs ] -> { start: east; end: west; } [ child ] { label: "child(ren)"; origin: detour_wf leafs; offset: 2,0; } 

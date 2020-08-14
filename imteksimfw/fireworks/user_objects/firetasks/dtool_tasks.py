@@ -4,7 +4,6 @@ from __future__ import unicode_literals
 
 from abc import abstractmethod
 from contextlib import ExitStack
-from typing import List
 
 import collections
 import copy  # for deep copies of nested objects, avoid references in YAML dumps
@@ -564,6 +563,14 @@ class CreateDatasetTask(DtoolTask):
             dependency_metadata = {source_dataset_key: copy.deepcopy(source_dataset)}
             logger.debug("Dependency metadata:")
             _log_nested_dict(logger.debug, dependency_metadata)
+        # without deepcopy, references in the dumped structure might appear as
+        #   derived_from:
+        #     - *id001
+        #  in the YAML output instead of the desired
+        #   derived_from:  # or other  label set via 'source_dataset_key'
+        #     - uuid: UUID of the first source dataset if available
+        #       name: name of the first source dataset if available
+        #       uri:  URI of the first source dataset
 
         metadata = {}
         metadata = dict_merge(template_metadata, dynamic_metadata)
