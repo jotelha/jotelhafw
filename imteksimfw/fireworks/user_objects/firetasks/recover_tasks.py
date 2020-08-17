@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+# coding: utf-8
 #
 # recover_tasks.py
 #
@@ -108,7 +108,7 @@ def dict_merge(dct, merge_dct, add_keys=True,
             k: merge_dct[k] for k in set(dct).intersection(set(merge_dct))}
         logger.debug(
             "Not merging keys only in 'merge_dict', only merging {}.".format(
-            merge_dct.keys()))
+                merge_dct.keys()))
 
     for k in dct.keys():
         if isinstance(dct[k], dict) and k not in merge_dct:
@@ -123,7 +123,7 @@ def dict_merge(dct, merge_dct, add_keys=True,
             logger.debug("Key '{}' included in dct.".format(k))
 
         if (k in dct and isinstance(dct[k], dict)
-            and isinstance(v, collections.Mapping)):
+                and isinstance(v, collections.Mapping)):
             if k not in merge_exclusions:  # no exception rule for this field
                 logger.debug("Key '{}' included in merge.".format(k))
                 dct[k] = dict_merge(dct[k], v, add_keys=add_keys,
@@ -160,9 +160,9 @@ def from_fw_spec(param, fw_spec):
 
 # we apply update_spec and mod_spec here a priori because additions and detours
 # won't be touched by the default mechanism in fireworks.core.firework
-def apply_mod_spec(wf, action):
+def apply_mod_spec(wf, action, fw_ids=None):
     """Update the spec of the children FireWorks using DictMod language."""
-    fw_ids = wf.leaf_fw_ids
+    fw_ids = fw_ids if fw_ids else wf.leaf_fw_ids
     updated_ids = []
 
     if action.update_spec and action.propagate:
@@ -309,6 +309,22 @@ class RecoverTask(FiretaskBase):
             a detour, independent on parent's success (i.e. post-processing).
             Task will not append anything if None. Default: None
 
+        - restart_fws_root ([int]): fw_ids (referring to fws in restart_wf)
+            to identify "roots" to be connected to this recover_fw. If not
+            specified, all dangling roots are connected.
+        - restart_fws_leaf ([int]): fw_ids (referring to fws in restart_wf)
+            to identify "leaves" to be connected to next recover_fw. If not
+            specified, all dangling leaves are connected.
+        - detour_fws_root ([int]): fw_ids (referring to fws in detour_wf)
+            to identify "roots" to be connected to this recover_fw. If not
+            specified, all dangling roots are connected.
+        - detour_fws_leaf ([int]): fw_ids (referring to fws in detour_wf)
+            to identify "leaves" to be connected to next recover_fw. If not
+            specified, all dangling leaves are connected.
+        - addition_fws_root ([int]): fw_ids (referring to fws in addition_wf)
+            to identify "roots" to be connected to this recover_fw. If not
+            specified, all dangling roots are connected.
+
         - apply_mod_spec_to_addition_wf (bool): Apply FWAction's update_spec and
             mod_spec to 'addition_wf', same as for all other regular childern
             of this task's FireWork. Default: True.
@@ -403,6 +419,12 @@ class RecoverTask(FiretaskBase):
         "detour_wf",
         "addition_wf",
 
+        "restart_fws_root",
+        "restart_fws_leaf",
+        "detour_fws_root",
+        "detour_fws_leaf",
+        "addition_fws_root",
+
         "apply_mod_spec_to_addition_wf",
         "apply_mod_spec_to_detour_wf",
         "fizzle_on_no_restart_file",
@@ -414,6 +436,7 @@ class RecoverTask(FiretaskBase):
         "restart_counter",
         "restart_file_glob_patterns",
         "restart_file_dests",
+
         "superpose_restart_on_parent_fw_spec",
         "superpose_addition_on_parent_fw_spec",
         "superpose_detour_on_parent_fw_spec",
@@ -430,7 +453,20 @@ class RecoverTask(FiretaskBase):
         """Creates Workflow from a Workflow or single FireWork dict description.
 
         If specified, use base_spec for all fw_spec and superpose individual
-        specs on top."""
+        specs on top.
+
+        Args:
+            - obj_dict (dict): describes either single FW or whole Workflow
+            - base_spec (dict): use those specs for all FWs within workflow.
+                Specific specs already set within obj_dict take precedence.
+            - exclusiond (dict): nested dict with keys marked for exclusion
+                by True boolean value. Excluded keys are stripped off base_spec.
+
+        Returns:
+            (Workflow, dict) tuple
+            - Worfklow: created workflow
+            - {int: int}: old to new fw_ids mapping
+        """
         logger = logging.getLogger(__name__)
 
         logger.debug("Initial obj_dict:")
@@ -444,6 +480,7 @@ class RecoverTask(FiretaskBase):
             logger.debug("exclusions:")
             _log_nested_dict(logger.debug, exclusions)
 
+        remapped_fw_ids = {}
         if isinstance(obj_dict, dict):
             # in case of single Fireworks:
             if "spec" in obj_dict:
@@ -452,6 +489,7 @@ class RecoverTask(FiretaskBase):
                     obj_dict["spec"] = dict_merge(base_spec, obj_dict["spec"],
                                                   exclusions=exclusions)
                 fw = Firework.from_dict(obj_dict)
+                remapped_fw_ids[fw.fw_id] = self.consecutive_fw_id
                 fw.fw_id = self.consecutive_fw_id
                 self.consecutive_fw_id -= 1
                 wf = Workflow([fw])
@@ -461,7 +499,6 @@ class RecoverTask(FiretaskBase):
                         fw_dict["spec"] = dict_merge(base_spec, fw_dict["spec"],
                                                      exclusions=exclusions)
                 wf = Workflow.from_dict(obj_dict)
-                remapped_fw_ids = {}
                 # do we have to reassign fw_ids? yes
                 for fw in wf.fws:
                     remapped_fw_ids[fw.fw_id] = self.consecutive_fw_id
@@ -474,10 +511,10 @@ class RecoverTask(FiretaskBase):
         logger.debug("Built object:")
         _log_nested_dict(logger.debug, wf.as_dict())
 
-        return wf
+        return wf, remapped_fw_ids
 
     # modeled to match original snippet from fireworks.core.rocket:
-
+    #
     # if my_spec.get("_files_out"):
     #     # One potential area of conflict is if a fw depends on two fws
     #     # and both fws generate the exact same file. That can lead to
@@ -520,13 +557,24 @@ class RecoverTask(FiretaskBase):
 
         return wf
 
-
     def run_task(self, fw_spec):
+        # NOTE: be careful to distinguish between what is referred to as
+        # detour_wf in the task's docstring, stored within detour_wf_dict below
+        # and the final detour_wf constructed, possibly comprising the partial
+        # restart and detour workflows specified via task parameters as well as
+        # another copy of this recover_fw.
+
         self.consecutive_fw_id = -1  # quite an ugly necessity
         # get fw_spec entries or their default values:
         restart_wf_dict = self.get('restart_wf', None)
         detour_wf_dict = self.get('detour_wf', None)
         addition_wf_dict = self.get('addition_wf', None)
+
+        restart_fws_root = self.get('restart_fws_root', None)
+        restart_fws_leaf = self.get('restart_fws_leaf', None)
+        detour_fws_root = self.get('detour_fws_root', None)
+        detour_fws_leaf = self.get('detour_fws_leaf', None)
+        addition_fws_root = self.get('addition_fws_root', None)
 
         apply_mod_spec_to_addition_wf = self.get('apply_mod_spec_to_addition_wf', True)
         apply_mod_spec_to_addition_wf = from_fw_spec(apply_mod_spec_to_addition_wf,
@@ -723,8 +771,8 @@ class RecoverTask(FiretaskBase):
                         except Exception as exc:
                             if ignore_errors:
                                 logger.warning("There was an error copying "
-                                            "'{}' to '{}', ignored:".format(
-                                                f, dest))
+                                               "'{}' to '{}', ignored:".format(
+                                                   f, dest))
                                 logger.warning(exc)
                             else:
                                 raise exc
@@ -762,7 +810,7 @@ class RecoverTask(FiretaskBase):
                     else:
                         logger.info("No restart file!")
                         if fizzle_on_no_restart_file:
-                             raise ValueError(
+                            raise ValueError(
                                 "No restart file in {} for glob pattern {}".format(
                                     path_prefix, glob_pattern))
 
@@ -777,7 +825,7 @@ class RecoverTask(FiretaskBase):
                         except Exception as exc:
                             logger.error("There was an error copying from {} "
                                          "to {}".format(
-                                            current_restart_file, dest))
+                                             current_restart_file, dest))
                             raise exc
 
             # distinguish between FireWorks and Workflows by top-level keys
@@ -785,6 +833,9 @@ class RecoverTask(FiretaskBase):
             # wf: ['fws', 'links', 'name', 'metadata', 'updated_on', 'created_on']
             detour_wf = None
             addition_wf = None
+            mapped_detour_fws_root = []
+            mapped_detour_fws_leaf = []
+            mapped_addition_fws_root = []
 
             # if detour_fw given, append in any case:
             if isinstance(detour_wf_dict, dict):
@@ -797,9 +848,33 @@ class RecoverTask(FiretaskBase):
                                        "fw_spec onto parent's "
                                        "fw_spec desired, but not parent"
                                        "fw_spec recovered.")
-                detour_wf = self.appendable_wf_from_dict(
+                detour_wf, detour_wf_fw_id_mapping = self.appendable_wf_from_dict(
                     detour_wf_dict, base_spec=detour_wf_base_spec,
                     exclusions=fw_spec_to_exclude_dict)
+
+                if detour_fws_root is None:  # default, as in core fireworks
+                    mapped_detour_fws_root.extend(detour_wf.root_fw_ids)
+                elif isinstance(detour_fws_root, (list, tuple)):
+                    mapped_detour_fws_root.extend(
+                        [detour_wf_fw_id_mapping[fw_id] for fw_id in detour_fws_root])
+                else:  # isinstance(detour_fws_root, int)
+                    mapped_detour_fws_root.append(detour_wf_fw_id_mapping[detour_fws_root])
+
+                if detour_fws_leaf is None:  # default, as in core fireworks
+                    mapped_detour_fws_leaf.extend(detour_wf.leaf_fw_ids)
+                elif isinstance(detour_fws_leaf, (list, tuple)):
+                    mapped_detour_fws_leaf.extend(
+                        [detour_wf_fw_id_mapping[fw_id] for fw_id in detour_fws_leaf])
+                else:  # isinstance(detour_fws_leaf, int)
+                    mapped_detour_fws_leaf.append(detour_wf_fw_id_mapping[detour_fws_leaf])
+
+                # only log if sepcific roots or leaves had been specified
+                if detour_fws_root:
+                    logger.debug("Mapped detour_wf root fw_ids {} onto newly created fw_ids {}".format(
+                        detour_fws_root, mapped_detour_fws_root[-len(detour_fws_root):]))
+                if detour_fws_leaf:
+                    logger.debug("Mapped detour_wf leaf fw_ids {} onto newly created fw_ids {}".format(
+                        detour_fws_leaf, mapped_detour_fws_leaf[-len(detour_fws_leaf)]))
 
             if detour_wf is not None:
                 logger.debug(
@@ -848,9 +923,32 @@ class RecoverTask(FiretaskBase):
                                            "fw_spec onto parent's "
                                            "fw_spec desired, but not parent"
                                            "fw_spec recovered.")
-                    restart_wf = self.appendable_wf_from_dict(
+                    restart_wf, restart_wf_fw_id_mapping = self.appendable_wf_from_dict(
                         restart_wf_dict, base_spec=restart_wf_base_spec,
                         exclusions=fw_spec_to_exclude_dict)
+
+                    if restart_fws_root is None:  # default, as in core fireworks
+                        mapped_detour_fws_root.extend(restart_wf.root_fw_ids)
+                    elif isinstance(restart_fws_root, (list, tuple)):
+                        mapped_detour_fws_root.extend(
+                            [restart_wf_fw_id_mapping[fw_id] for fw_id in restart_fws_root])
+                    else:  # isinstance(restart_fws_root, int)
+                        mapped_detour_fws_root.append(restart_wf_fw_id_mapping[restart_fws_root])
+
+                    if restart_fws_leaf is None:
+                        mapped_detour_fws_leaf.extend(restart_wf.leaf_fw_ids)
+                    elif isinstance(restart_fws_leaf, (list, tuple)):
+                        mapped_detour_fws_leaf.extend(
+                            [restart_wf_fw_id_mapping[fw_id] for fw_id in restart_fws_leaf])
+                    else:  # isinstance(restart_fws_leaf, int)
+                        mapped_detour_fws_leaf.append(restart_wf_fw_id_mapping[restart_fws_leaf])
+
+                    if restart_fws_root:
+                        logger.debug("Mapped restart_wf root fw_ids {} onto newly created fw_ids {}".format(
+                            restart_fws_root, mapped_detour_fws_root[-len(restart_fws_root):]))
+                    if restart_fws_leaf:
+                        logger.debug("Mapped restart_wf leaf fw_ids {} onto newly created fw_ids {}".format(
+                            restart_fws_leaf, mapped_detour_fws_leaf[-len(restart_fws_leaf)]))
 
                     # apply updates to fw_spec
                     for fws in restart_wf.fws:
@@ -914,7 +1012,11 @@ class RecoverTask(FiretaskBase):
                                                             recover_fw.spec))
 
                     recover_wf = Workflow([recover_fw])
-                    detour_wf.append_wf(recover_wf, detour_wf.leaf_fw_ids)
+
+                    detour_wf.append_wf(recover_wf, mapped_detour_fws_leaf)
+
+                    # now we don't need the true 'mapped_detour_fws_leaf' anymore, recover_wf becomes the leaf
+                    mapped_detour_fws_leaf = recover_wf.leaf_fw_ids
 
                     logger.debug(
                         "Workflow([*detour_wf.fws, *restart_wf.fws, recover_fw]):")
@@ -938,9 +1040,22 @@ class RecoverTask(FiretaskBase):
                                        "fw_spec onto parent's "
                                        "fw_spec desired, but not parent"
                                        "fw_spec recovered.")
-                addition_wf = self.appendable_wf_from_dict(
+                addition_wf, addition_wf_fw_id_mapping = self.appendable_wf_from_dict(
                     addition_wf_dict, base_spec=addition_wf_base_spec,
                     exclusions=fw_spec_to_exclude_dict)
+
+                if addition_fws_root is None:
+                    mapped_addition_fws_root.extend(addition_wf.root_fw_ids)
+                elif isinstance(addition_fws_root, (list, tuple)):
+                    mapped_addition_fws_root.extend(
+                        [addition_wf_fw_id_mapping[fw_id] for fw_id in addition_fws_root])
+                else:  # isinstance(addition_fws_root, int)
+                    mapped_addition_fws_root.append(addition_wf_fw_id_mapping[addition_fws_root])
+
+                if addition_fws_root:
+                    logger.debug("Mapped addition_wf root fw_ids {} onto newly created fw_ids {}".format(
+                        addition_fws_root, mapped_addition_fws_root[-len(addition_fws_root):]))
+
                 self.write_files_prev(addition_wf, fw_spec)
 
         # end of ExitStack context
@@ -961,15 +1076,20 @@ class RecoverTask(FiretaskBase):
             fw_action.mod_spec = [{dict_mod: {output_key: output}}]
 
         if addition_wf and apply_mod_spec_to_addition_wf:
-            apply_mod_spec(addition_wf, fw_action)
+            apply_mod_spec(addition_wf, fw_action, fw_ids=mapped_addition_fws_root)
 
         if detour_wf and apply_mod_spec_to_detour_wf:
-            apply_mod_spec(detour_wf, fw_action)
+            apply_mod_spec(detour_wf, fw_action, fw_ids=mapped_detour_fws_root)
 
-        if addition_wf:
+        if addition_wf:  # for now, only one addition
             fw_action.additions = [addition_wf]
+            fw_action.additions_root_fw_ids = [mapped_addition_fws_root]
 
         if detour_wf:
+            # the leaf of a detour_wf is either another recover_fw or
+            # the leaves of detour_wf_dict
             fw_action.detours = [detour_wf]
+            fw_action.detours_root_fw_ids = [mapped_detour_fws_root]
+            fw_action.detours_leaf_fw_ids = [mapped_detour_fws_leaf]
 
         return fw_action
