@@ -329,11 +329,9 @@ class RecoverTask(FiretaskBase):
             mod_spec to 'addition_wf', same as for all other regular childern
             of this task's FireWork. Default: True.
         - apply_mod_spec_to_detour_wf (bool): Apply FWAction's update_spec and
-            mod_spec to 'detour_wf', same as for all other regular childern
-            of this task's FireWork. Default: True.
-        - default_restart_file (str): Name of restart file. Most recent restart
-            file found in fizzled parent via 'restart_file_glob_patterns'
-            will be copied to new launchdir under this name. Default: None
+            mod_spec to 'detour_wf', 'restart_wf', and the next instance of
+            'recover_fw', same as for all other regular childern of this task's
+            FireWork. Default: True.
         - fizzle_on_no_restart_file (bool): Default: True
         - fw_spec_to_exclude ([str]): recover FireWork will inherit the current
             FireWork's 'fw_spec', stripped of top-level fields specified here.
@@ -354,6 +352,11 @@ class RecoverTask(FiretaskBase):
             If more than one file matches a glob pattern in the list, only the
             most recent macth per list entry is recovered.
             Default: ['*.restart[0-9]']
+        - restart_file_dests (str or [str]): Destinations of copied restart
+            files. Most recent restart file found for each entry in the
+            restart_file_glob_patterns list will be copied to new launchdir
+            named after the according entry within this list. If None, then
+            files keep their original names. Default: None
         - superpose_restart_on_parent_fw_spec (bool):
             Try to pull (fizzled) parent's fw_spec and merge with fw_spec of
             all FireWorks within restart_wf, with latter enjoying precedence.
@@ -411,7 +414,7 @@ class RecoverTask(FiretaskBase):
         - _files_out
         - _files_prev
     """
-    _fw_name = "RecoverLammpsTask"
+    _fw_name = "RecoverTask"
     required_params = [
         "restart_wf",
     ]
