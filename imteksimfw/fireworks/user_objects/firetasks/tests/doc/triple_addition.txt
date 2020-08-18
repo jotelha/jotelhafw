@@ -1,0 +1,26 @@
+# Graph::Easy v0.76 input file
+graph { flow: east; }
+
+( restart_wf
+  [ restart_wf root ] -> { start: east; end: west; } [ restart_wf body ] -> { start: east; end: west; } [ restart_wf leaf ]
+) {
+  border-style: dashed;
+  }
+
+( detour_wf
+  [ detour_wf root ] -> { start: east; end: west; } [ detour_wf body ] -> { start: east; end: west; } [ detour_wf leaf ]
+) {
+  border-style: dashed;
+  }
+
+( addition_wf
+  [ addition_wf root ] -> { start: east; end: west; } [ addition_wf body ] -> { start: east; end: west; } [ addition_wf leaf ]
+) {
+  border-style: dashed;
+  }
+
+[ ] -> [ restart_wf root ]
+[ ] -> [ detour_wf root ]
+[ ] -> [ addition_wf root ]
+[ restart_wf leaf ] -> [ recover_fw ]
+[ detour_wf leaf ] -> [ recover_fw ]

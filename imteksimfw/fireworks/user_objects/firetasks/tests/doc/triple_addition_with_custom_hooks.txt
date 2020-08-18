@@ -1,0 +1,29 @@
+# Graph::Easy v0.76 input file
+graph { flow: east; }
+
+# [ recover_fw ]
+
+( restart_wf
+  [ restart_wf root ] -> [ restart_wf body ] { origin: restart_wf root; offset: 2,0; } -> [ restart_wf leaf ] { origin: restart_wf body; offset: 2,0; } 
+) {
+  border-style: dashed;
+  }
+
+[ ] { origin: restart_wf body; offset: 0,-2; } -> [ restart_wf body ]
+[ restart_wf body ] -> [ recover_fw ] { origin: restart_wf body; offset: 0,2; } 
+
+( detour_wf
+  [ detour_wf root ] { origin: detour_wf body; offset: -2,0; } -> [ detour_wf body ] { origin: recover_fw; offset: 0,2; } -> [ detour_wf leaf ] { origin: detour_wf body; offset: 2,0; } 
+) {
+  border-style: dashed;
+  }
+
+[ detour_wf body ] -> [ recover_fw ]
+[ ] { origin: detour_wf body; offset: 0,2; } -> [ detour_wf body ]
+
+( addition_wf
+  [ addition_wf root ] { origin: detour_wf root; offset: 0,6; } -> [ addition_wf body ] { origin: addition_wf root; offset: 2,0; } -> [ addition_wf leaf ] { origin: addition_wf body; offset: 2,0; } 
+) {
+  border-style: dashed;
+  }
+[ ] { origin: addition_wf body; offset: 0,-2; } -> [ addition_wf body ]
