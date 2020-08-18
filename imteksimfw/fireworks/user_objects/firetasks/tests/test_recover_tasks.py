@@ -1003,6 +1003,235 @@ class RecoverTasksTest(unittest.TestCase):
         addition_leaf_fw_id = self._assert_addition_wf_topology(addition, addition_root_fw_id)
         self.assertEqual(len(addition.links[addition_leaf_fw_id]), 0)
 
+    def test_triple_wf_insertion_with_custom_links(self):
+        """Run a recovery task that returns a detour."""
+        logger = logging.getLogger(__name__)
+        logger.info("### {} ###".format(sys._getframe().f_code.co_name))
+
+        restart_wf = _get_dummy_restart_wf()
+        logger.debug("Restart wf:")
+        _log_nested_dict(restart_wf.as_dict())
+
+        restart_wf_root_fw_ids = [fw.fw_id for fw in restart_wf.fws if fw.name == 'restart_wf body']
+        restart_wf_leaf_fw_ids = [fw.fw_id for fw in restart_wf.fws if fw.name == 'restart_wf body']
+
+        detour_wf = _get_dummy_detour_wf()
+        logger.debug("Detour wf:")
+        _log_nested_dict(detour_wf.as_dict())
+
+        detour_wf_root_fw_ids = [fw.fw_id for fw in detour_wf.fws if fw.name == 'detour_wf body']
+        detour_wf_leaf_fw_ids = [fw.fw_id for fw in detour_wf.fws if fw.name == 'detour_wf body']
+
+        addition_wf = _get_dummy_addition_wf()
+        logger.debug("Addition wf:")
+        _log_nested_dict(addition_wf.as_dict())
+
+        addition_wf_root_fw_ids = [fw.fw_id for fw in addition_wf.fws if fw.name == 'addition_wf body']
+
+        task_spec = {
+            'restart_wf': restart_wf.as_dict(),
+            'addition_wf': addition_wf.as_dict(),
+            'detour_wf': detour_wf.as_dict(),
+            'restart_fws_root': restart_wf_root_fw_ids,
+            'restart_fws_leaf': restart_wf_leaf_fw_ids,
+            'detour_fws_root': detour_wf_root_fw_ids,
+            'detour_fws_leaf': detour_wf_leaf_fw_ids,
+            'addition_fws_root': addition_wf_root_fw_ids,
+            'fizzle_on_no_restart_file': False,
+            'repeated_recover_fw_name': 'recover_fw',
+        }
+        task_spec = dict_merge(self.default_task_spec, task_spec)
+
+        fw_spec = {
+            '_job_info': [{
+                'launch_dir': 'dummy_prev_launch',
+                'name': 'dummy parent',
+                'fw_id': 1,
+            }]
+        }
+        fw_spec = dict_merge(self.default_fw_spec, fw_spec)
+
+        logger.debug("Instantiate RecoverTask with '{}'".format(task_spec))
+        t = RecoverTask(**task_spec)
+        logger.debug("Run with fw_spec '{}'".format(fw_spec))
+        fw_action = t.run_task(fw_spec)
+        logger.debug("FWAction:")
+        _log_nested_dict(fw_action.as_dict())
+
+        # per default, would result in
+        #     + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -+
+        #     ' restart_wf                                                             '
+        #     '                                                                        '
+        #     ' +------------------+     +------------------+     +------------------+ '     +------------+
+        # --> ' | restart_wf root  | --> | restart_wf body  | --> | restart_wf leaf  | ' --> | recover_fw |
+        #     ' +------------------+     +------------------+     +------------------+ '     +------------+
+        #     '                                                                        '
+        #     + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -+
+        #                                                                                      ^
+        #                                                                                      |
+        #                                                                                      |
+        #     + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -+       |
+        #     ' detour_wf                                                              '       |
+        #     '                                                                        '       |
+        #     ' +------------------+     +------------------+     +------------------+ '       |
+        # --> ' |  detour_wf root  | --> |  detour_wf body  | --> |  detour_wf leaf  | ' ------+
+        #     ' +------------------+     +------------------+     +------------------+ '
+        #     '                                                                        '
+        #     + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -+
+        #     + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -+
+        #     ' addition_wf                                                            '
+        #     '                                                                        '
+        #     ' +------------------+     +------------------+     +------------------+ '
+        # --> ' | addition_wf root | --> | addition_wf body | --> | addition_wf leaf | '
+        #     ' +------------------+     +------------------+     +------------------+ '
+        #     '                                                                        '
+        #     + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -+
+
+        # with custom entry and exit hooks (parent-child links), looks like
+        #                              |
+        #                              |
+        #                              v
+        # + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -+
+        # ' restart_wf                                                             '
+        # '                                                                        '
+        # ' +------------------+     +------------------+     +------------------+ '
+        # ' | restart_wf root  | --> | restart_wf body  | --> | restart_wf leaf  | '
+        # ' +------------------+     +------------------+     +------------------+ '
+        # '                                                                        '
+        # + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -+
+        #                              |
+        #                              |
+        #                              v
+        #                            +------------------+
+        #                            |    recover_fw    |
+        #                            +------------------+
+        #                              ^
+        #                              |
+        #                              |
+        # + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -+
+        # ' detour_wf                                                              '
+        # '                                                                        '
+        # ' +------------------+     +------------------+     +------------------+ '
+        # ' |  detour_wf root  | --> |  detour_wf body  | --> |  detour_wf leaf  | '
+        # ' +------------------+     +------------------+     +------------------+ '
+        # '                                                                        '
+        # + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -+
+        #                              ^
+        #                              |
+        #                              |
+        #
+        #
+        #
+        #
+        #
+        #
+        #                              |
+        #                              |
+        #                              v
+        # + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -+
+        # ' addition_wf                                                            '
+        # '                                                                        '
+        # ' +------------------+     +------------------+     +------------------+ '
+        # ' | addition_wf root | --> | addition_wf body | --> | addition_wf leaf | '
+        # ' +------------------+     +------------------+     +------------------+ '
+        # '                                                                        '
+        # + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -+
+
+        # detour
+        detour = fw_action.detours[0]
+        self.assertIsInstance(detour, Workflow)
+
+        self.assertEqual(len(detour.leaf_fw_ids), 3)
+        self.assertEqual(len(detour.root_fw_ids), 2)
+
+        # detour roots
+        root_fw_names = {detour.id_fw[fw_id].name: fw_id for fw_id in detour.root_fw_ids}
+        self.assertIn('detour_wf root', root_fw_names)
+        self.assertIn('restart_wf root', root_fw_names)
+
+        # detour leaves
+        leaf_fw_names = {detour.id_fw[fw_id].name: fw_id for fw_id in detour.leaf_fw_ids}
+        self.assertIn('detour_wf leaf', leaf_fw_names)
+        self.assertIn('restart_wf leaf', leaf_fw_names)
+        self.assertIn('recover_fw', leaf_fw_names)
+
+        recover_fw_id = leaf_fw_names['recover_fw']
+
+        # restart_wf
+        restart_root_fw_id = root_fw_names['restart_wf root']
+        self.assertEqual(detour.id_fw[restart_root_fw_id].name, 'restart_wf root')
+        restart_root_fw_children = detour.links[restart_root_fw_id]
+
+        self.assertEqual(len(restart_root_fw_children), 1)
+        restart_body_fw_id = restart_root_fw_children[0]
+        self.assertEqual(detour.id_fw[restart_body_fw_id].name, 'restart_wf body')
+        restart_body_fw_children = detour.links[restart_body_fw_id]
+
+        self.assertEqual(len(restart_body_fw_children), 2)
+        restart_body_fw_child_names = {detour.id_fw[fw_id].name: fw_id for fw_id in restart_body_fw_children}
+        self.assertIn('restart_wf leaf', restart_body_fw_child_names)
+        self.assertIn('recover_fw', restart_body_fw_child_names)
+        self.assertEqual(restart_body_fw_child_names['recover_fw'], recover_fw_id)
+
+        restart_leaf_fw_id = restart_body_fw_child_names['restart_wf leaf']
+        self.assertEqual(len(detour.links[restart_leaf_fw_id]), 0)
+
+        # detour_wf
+        detour_root_fw_id = root_fw_names['detour_wf root']
+        self.assertEqual(detour.id_fw[detour_root_fw_id].name, 'detour_wf root')
+        detour_root_fw_children = detour.links[detour_root_fw_id]
+
+        self.assertEqual(len(detour_root_fw_children), 1)
+        detour_body_fw_id = detour_root_fw_children[0]
+        self.assertEqual(detour.id_fw[detour_body_fw_id].name, 'detour_wf body')
+        detour_body_fw_children = detour.links[detour_body_fw_id]
+
+        self.assertEqual(len(detour_body_fw_children), 2)
+        detour_body_fw_child_names = {detour.id_fw[fw_id].name: fw_id for fw_id in detour_body_fw_children}
+        self.assertIn('detour_wf leaf', detour_body_fw_child_names)
+        self.assertIn('recover_fw', detour_body_fw_child_names)
+        self.assertEqual(detour_body_fw_child_names['recover_fw'], recover_fw_id)
+
+        detour_leaf_fw_id = detour_body_fw_child_names['detour_wf leaf']
+        self.assertEqual(len(detour.links[detour_leaf_fw_id]), 0)
+
+        # addition
+        addition = fw_action.additions[0]
+        self.assertIsInstance(addition, Workflow)
+
+        self.assertEqual(len(addition.leaf_fw_ids), 1)
+        self.assertEqual(len(addition.root_fw_ids), 1)
+
+        addition_root_fw_id = addition.root_fw_ids[0]
+        self.assertEqual(addition.id_fw[addition_root_fw_id].name, 'addition_wf root')
+        addition_root_fw_children = addition.links[addition_root_fw_id]
+
+        self.assertEqual(len(addition_root_fw_children), 1)
+        addition_body_fw_id = addition_root_fw_children[0]
+        self.assertEqual(addition.id_fw[addition_body_fw_id].name, 'addition_wf body')
+
+        self.assertEqual(len(addition.links[addition_body_fw_id]), 1)
+        addition_leaf_fw_id = addition.links[addition_body_fw_id][0]
+        self.assertEqual(addition.id_fw[addition_leaf_fw_id].name, 'addition_wf leaf')
+        self.assertEqual(len(addition.links[addition_leaf_fw_id]), 0)
+
+        # custom outgoing links
+        self.assertEqual(len(fw_action.detours_root_fw_ids), 1)
+        self.assertEqual(len(fw_action.detours_leaf_fw_ids), 1)
+        self.assertEqual(len(fw_action.additions_root_fw_ids), 1)
+
+        self.assertEqual(len(fw_action.detours_root_fw_ids[0]), 2)
+        self.assertEqual(len(fw_action.detours_leaf_fw_ids[0]), 1)
+        self.assertEqual(len(fw_action.additions_root_fw_ids[0]), 1)
+
+        self.assertIn(restart_body_fw_id, fw_action.detours_root_fw_ids[0])
+        self.assertIn(detour_body_fw_id, fw_action.detours_root_fw_ids[0])
+        self.assertIn(recover_fw_id, fw_action.detours_leaf_fw_ids[0])
+        self.assertIn(addition_body_fw_id, fw_action.additions_root_fw_ids[0])
+
+        logger.info("detoors_root_fw_ids: {}".format(fw_action.detours_root_fw_ids))
+        logger.info("detoors_leaf_fw_ids: {}".format(fw_action.detours_leaf_fw_ids))
+        logger.info("additions_root_fw_ids: {}".format(fw_action.additions_root_fw_ids))
 
     def test_base_spec_for_triple_wf(self):
         """Run a recovery task that returns a detour."""
@@ -1114,6 +1343,8 @@ class RecoverTasksTest(unittest.TestCase):
             else:
                 self.assertNotIn("top-level-key-to-include", fw.spec)
                 self.assertIn("top-level-key-in-recover-fw", fw.spec)
+
+
 
 if __name__ == '__main__':
     unittest.main()
