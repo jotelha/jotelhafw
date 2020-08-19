@@ -98,8 +98,9 @@ def dict_merge(dct, merge_dct, add_keys=True,
     logger.debug("... and 'merge_exclusions'...")
     _log_nested_dict(logger.debug, merge_exclusions)
 
+    # remove all entries marked as exclusions from dct
     for k in exclusions:
-        if (k in dct) and (dct[k] is True):
+        if (k in dct) and (exclusions[k] is True):
             logger.debug("Key '{}' excluded from dct.".format(k))
             del dct[k]
 
@@ -110,11 +111,18 @@ def dict_merge(dct, merge_dct, add_keys=True,
             "Not merging keys only in 'merge_dict', only merging {}.".format(
                 merge_dct.keys()))
 
+    # Add empty fields to merge_dct for all keys in dct but not in merge_dct.
+    # This makes sure the union of all keys from dct stripped off exclusions
+    # and merge_dct not yet stripped off merge_exclusions is treated in the
+    # following.
     for k in dct.keys():
         if isinstance(dct[k], dict) and k not in merge_dct:
             merge_dct[k] = {}
 
     for k, v in merge_dct.items():
+        # all truly excluded keys allready removed from dct, thus an existing
+        # entry in exclusions means that some more specific nested key
+        # is excluded
         if k in exclusions:
             lower_level_exclusions = exclusions[k]
             logger.debug("Key '{}' included in dct, but exclusions exist for nested keys.".format(k))
@@ -122,13 +130,15 @@ def dict_merge(dct, merge_dct, add_keys=True,
             lower_level_exclusions = {}
             logger.debug("Key '{}' included in dct.".format(k))
 
+        # only treat nested nested dicts for now
+        # TODO: treat also nested lists
         if (k in dct and isinstance(dct[k], dict)
                 and isinstance(v, collections.Mapping)):
             if k not in merge_exclusions:  # no exception rule for this field
                 logger.debug("Key '{}' included in merge.".format(k))
                 dct[k] = dict_merge(dct[k], v, add_keys=add_keys,
                                     exclusions=lower_level_exclusions)
-            elif merge_exclusions[k] is not True:  # exception rule for nested fields
+            elif merge_exclusions[k] is not True:  # exclusion rule for nested fields
                 logger.debug("Key '{}' included in merge, but exclusions exist for nested keys.".format(k))
                 dct[k] = dict_merge(dct[k], v, add_keys=add_keys,
                                     exclusions=lower_level_exclusions,
@@ -533,7 +543,7 @@ class RecoverTask(FiretaskBase):
 
     # if the curret fw yields outfiles, then check whether according
     # '_files_prev' must be written for newly created insertions
-    def write_files_prev(self, wf, fw_spec):
+    def write_files_prev(self, wf, fw_spec, root_fw_ids=None):
         "Sets _files_prev in roots of new workflow according to _files_out in fw_spec."
         logger = logging.getLogger(__name__)
 
@@ -554,7 +564,10 @@ class RecoverTask(FiretaskBase):
                     files_prev[k] = filepath
 
             # get roots of insertion wf and assign _files_prev to them
-            root_fws = [fw for fw in wf.fws if fw.fw_id in wf.root_wf_ids]
+            if root_fw_ids is None:
+                root_fw_ids = wf.root_fw_ids
+            root_fws = [fw for fw in wf.fws if fw.fw_id in root_fw_ids]
+
             for root_fw in root_fws:
                 root_fw.spec["_files_prev"] = files_prev
 
@@ -906,16 +919,16 @@ class RecoverTask(FiretaskBase):
                         logger.warning("Found no restart count in own fw_spec "
                                        "at key '{}.'".format(restart_counter))
 
-                # if still none found, assume it's the "0th"
+                # if still none found, assume it's the 1st
                 if restart_count is None:
-                    restart_count = 0
+                    restart_count = 1 # original run without restart_count is "0th"
                 else:  # make sure above's queried value is an integer
-                    restart_count = int(restart_count) + 1
+                    restart_count = int(restart_count) + 1 # next restart now
 
                 if restart_count < max_restarts + 1:
                     logger.info(
                         "This is #{:d} of at most {:d} restarts.".format(
-                            restart_count+1, max_restarts))
+                            restart_count, max_restarts))
 
                     restart_wf_base_spec = None
                     if superpose_restart_on_parent_fw_spec:
@@ -1029,7 +1042,7 @@ class RecoverTask(FiretaskBase):
                         "Maximum number of {} restarts reached. "
                         "No further restart.".format(max_restarts))
 
-                self.write_files_prev(detour_wf, fw_spec)
+                self.write_files_prev(detour_wf, fw_spec, root_fw_ids=mapped_detour_fws_root)
             else:
                 logger.warning("No restart Fireworks appended.")
 
@@ -1059,7 +1072,7 @@ class RecoverTask(FiretaskBase):
                     logger.debug("Mapped addition_wf root fw_ids {} onto newly created fw_ids {}".format(
                         addition_fws_root, mapped_addition_fws_root[-len(addition_fws_root):]))
 
-                self.write_files_prev(addition_wf, fw_spec)
+                self.write_files_prev(addition_wf, fw_spec, root_fw_ids=mapped_addition_fws_root)
 
         # end of ExitStack context
         output = {}
