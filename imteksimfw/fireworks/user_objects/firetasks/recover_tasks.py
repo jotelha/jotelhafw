@@ -927,9 +927,9 @@ class RecoverTask(FiretaskBase):
 
                 # if still none found, assume it's the 1st
                 if restart_count is None:
-                    restart_count = 1 # original run without restart_count is "0th"
+                    restart_count = 1  # original run without restart_count is "0th"
                 else:  # make sure above's queried value is an integer
-                    restart_count = int(restart_count) + 1 # next restart now
+                    restart_count = int(restart_count) + 1  # next restart now
 
                 if restart_count < max_restarts + 1:
                     logger.info(
@@ -1044,18 +1044,18 @@ class RecoverTask(FiretaskBase):
 
                     # now we don't need the true 'mapped_detour_fws_leaf' anymore, recover_wf becomes the leaf
                     mapped_detour_fws_leaf = recover_wf.leaf_fw_ids
-
-                    logger.debug(
-                        "Workflow([*detour_wf.fws, *restart_wf.fws, recover_fw]):")
-                    _log_nested_dict(logger.debug, detour_wf.as_dict())
                 else:
                     logger.warning(
                         "Maximum number of {} restarts reached. "
                         "No further restart.".format(max_restarts))
-
-                self.write_files_prev(detour_wf, fw_spec, root_fw_ids=mapped_detour_fws_root)
             else:
                 logger.warning("No restart Fireworks appended.")
+
+            if detour_wf is not None:
+                self.write_files_prev(detour_wf, fw_spec, root_fw_ids=mapped_detour_fws_root)
+                logger.debug(
+                    "Workflow([*detour_wf.fws, *restart_wf.fws, recover_fw]):")
+                _log_nested_dict(logger.debug, detour_wf.as_dict())
 
             if isinstance(addition_wf_dict, dict):
                 addition_wf_base_spec = None
