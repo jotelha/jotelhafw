@@ -558,7 +558,7 @@ class RecoverTask(FiretaskBase):
                 if files:
                     logger.info("This Firework provides {}: {}".format(
                                 k, files), " within _files_out.")
-                    filepath = sorted(files)[-1]
+                    filepath = os.path.abspath(sorted(files)[-1])
                     logger.info("{}: '{}' provided as '_files_prev'".format(
                                 k, filepath), " to subsequent FireWorks.")
                     files_prev[k] = filepath
