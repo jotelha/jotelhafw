@@ -1275,7 +1275,7 @@ class RecoverTasksTest(unittest.TestCase):
         logger.info("additions_root_fw_ids: {}".format(fw_action.additions_root_fw_ids))
 
     def test_base_spec_for_triple_wf(self):
-        """Run a recovery task that returns a detour."""
+        """Run a recovery task that merges new and recovered specs for restart_wf, detour_wf, and restart_fw."""
         logger = logging.getLogger(__name__)
         logger.info("### {} ###".format(sys._getframe().f_code.co_name))
 
@@ -1385,6 +1385,75 @@ class RecoverTasksTest(unittest.TestCase):
                 self.assertNotIn("top-level-key-to-include", fw.spec)
                 self.assertIn("top-level-key-in-recover-fw", fw.spec)
 
+    def test_default_exclusions_for_triple_wf(self):
+        """Run a recovery task that applies default exclusions when merging specs."""
+        logger = logging.getLogger(__name__)
+        logger.info("### {} ###".format(sys._getframe().f_code.co_name))
+
+        restart_wf = _get_dummy_restart_wf()
+        logger.debug("Restart wf:")
+        _log_nested_dict(restart_wf.as_dict())
+
+
+        addition_wf = _get_dummy_addition_wf()
+        logger.debug("Addition wf:")
+        _log_nested_dict(addition_wf.as_dict())
+
+        detour_wf = _get_dummy_detour_wf()
+        logger.debug("Detour wf:")
+        _log_nested_dict(detour_wf.as_dict())
+
+
+        task_spec = {
+            'restart_wf': restart_wf.as_dict(),
+            'addition_wf': addition_wf.as_dict(),
+            'detour_wf': detour_wf.as_dict(),
+            'fizzle_on_no_restart_file': False,
+            'repeated_recover_fw_name': 'recover_fw',
+            "superpose_restart_on_parent_fw_spec": True,
+            "superpose_addition_on_parent_fw_spec": True,
+            "superpose_detour_on_parent_fw_spec": True,
+        }
+        task_spec = dict_merge(self.default_task_spec, task_spec)
+
+        fw_spec = {
+            '_fizzled_parents': [{
+                'name': 'dummy parent',
+                'fw_id': 1,
+                'launches': [
+                    {'launch_dir': './does/not/exist'}
+                ],
+                'spec': {
+                    '_fizzled_parents': {'from': 'FizzledParent'},
+                    '_job_info': {'from': 'FizzledParent'},
+                    '_fw_env': {'from': 'FizzledParent'},
+                    '_files_prev': {'from': 'FizzledParent'},
+                }
+            }],
+            '_fw_env': {'from': 'RecoverTask'},
+            '_files_prev': {'from': 'RecoverTask'},
+        }
+        fw_spec = dict_merge(self.default_fw_spec, fw_spec)
+
+        logger.debug("Instantiate RecoverTask with '{}'".format(task_spec))
+        t = RecoverTask(**task_spec)
+        logger.debug("Run with fw_spec '{}'".format(fw_spec))
+        fw_action = t.run_task(fw_spec)
+        logger.debug("FWAction:")
+        _log_nested_dict(fw_action.as_dict())
+
+        # ... must result in the following addition:
+
+        # detour
+        detour = fw_action.detours[0]
+        addition = fw_action.additions[0]
+
+        # fw_spec assertions:
+        for fw in [*detour.fws, *addition.fws]:
+            self.assertNotIn('_job_info', fw.spec)
+            self.assertNotIn('_fw_env', fw.spec)
+            self.assertNotIn('_files_prev', fw.spec)
+            self.assertNotIn('_fizzled_parents', fw.spec)
 
 
 if __name__ == '__main__':

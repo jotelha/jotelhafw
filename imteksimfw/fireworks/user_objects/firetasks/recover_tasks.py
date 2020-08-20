@@ -765,7 +765,7 @@ class RecoverTask(FiretaskBase):
                 logger.debug("Parent Firewor has 'spec':")
                 _log_nested_dict(logger.debug, prev_job_info["spec"])
             else:
-                logger.warn("Parent Firework description does not include 'spec' key.")
+                logger.warning("Parent Firework description does not include 'spec' key.")
 
             # find other files to forward:
             file_list = []
@@ -992,7 +992,7 @@ class RecoverTask(FiretaskBase):
                     # recover_fw_spec = {key: fw_spec[key] for key in fw_spec
                     #                   if key not in fw_spec_to_exclude}
                     recover_fw_spec = dict_merge({}, fw_spec,
-                                                 exclusions=fw_spec_to_exclude_dict)
+                                                 merge_exclusions=fw_spec_to_exclude_dict)
                     set_nested_dict_value(recover_fw_spec, restart_counter, restart_count)
                     logger.debug("Insert restart counter '{}': {} into recover_fw.spec.".format(
                                  restart_counter, restart_count))
