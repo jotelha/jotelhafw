@@ -761,6 +761,12 @@ class RecoverTask(FiretaskBase):
                 recover = False  # don't recover
                 # assume that parent completed successfully
 
+            if prev_job_info and 'spec' in prev_job_info:
+                logger.debug("Parent Firewor has 'spec':")
+                _log_nested_dict(logger.debug, prev_job_info["spec"])
+            else:
+                logger.warn("Parent Firework description does not include 'spec' key.")
+
             # find other files to forward:
             file_list = []
 
@@ -967,9 +973,11 @@ class RecoverTask(FiretaskBase):
                             restart_fws_leaf, mapped_detour_fws_leaf[-len(restart_fws_leaf)]))
 
                     # apply updates to fw_spec
-                    for fws in restart_wf.fws:
+                    for fw in restart_wf.fws:
+                        logger.debug("Insert restart counter '{}': {} into fw_id {}: '{}'.".format(
+                            restart_counter, restart_count, fw.fw_id, fw.name))
                         set_nested_dict_value(
-                            fws.spec, restart_counter, restart_count)
+                            fw.spec, restart_counter, restart_count)
 
                     logger.debug(
                         "restart_wf:")
@@ -985,7 +993,10 @@ class RecoverTask(FiretaskBase):
                     #                   if key not in fw_spec_to_exclude}
                     recover_fw_spec = dict_merge({}, fw_spec,
                                                  exclusions=fw_spec_to_exclude_dict)
-                    logger.debug("propagating fw_spec = {} to subsequent "
+                    set_nested_dict_value(recover_fw_spec, restart_counter, restart_count)
+                    logger.debug("Insert restart counter '{}': {} into recover_fw.spec.".format(
+                                 restart_counter, restart_count))
+                    logger.debug("Propagate fw_spec = {} to subsequent "
                                  "recover_fw.".format(recover_fw_spec))
 
                     # merge insertions

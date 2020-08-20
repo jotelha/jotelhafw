@@ -258,6 +258,47 @@ class RecoverTasksTest(unittest.TestCase):
 
         self.assertEqual(additions, [])
 
+    def test_increase_custom_restart_counter(self):
+        """Will run a recovery task and check for an increased restart counter."""
+        logger = logging.getLogger(__name__)
+        logger.info("### {} ###".format(sys._getframe().f_code.co_name))
+
+        task_spec = {
+            'restart_wf': self.default_restart_wf_dict,
+            'fizzle_on_no_restart_file': False,
+            'restart_counter': 'nested->deeply_nested->restart_count',
+        }
+        task_spec = dict_merge(self.default_task_spec, task_spec)
+
+        fw_spec = {
+            '_fizzled_parents': [{
+                'launch_dir': os.curdir,
+                'name': 'dummy parent',
+                'fw_id': 1,
+                'spec': {
+                    'nested': {'deeply_nested': {'restart_count': 2}},
+                },
+                'launches': [
+                    {'launch_dir': './does/not/exist'}
+                ]
+            }]
+        }
+        fw_spec = dict_merge(self.default_fw_spec, fw_spec)
+
+        logger.debug("Instantiate RecoverTask with '{}'".format(task_spec))
+        t = RecoverTask(**task_spec)
+        logger.debug("Run with fw_spec '{}'".format(fw_spec))
+        fw_action = t.run_task(fw_spec)
+        logger.debug("FWAction:")
+        _log_nested_dict(fw_action.as_dict())
+
+        detours = fw_action.detours[0]
+        for fws in detours.fws:
+            self.assertIn('nested',  fws.spec)
+            self.assertIn('deeply_nested',  fws.spec["nested"])
+            self.assertIn('restart_count',  fws.spec["nested"]["deeply_nested"])
+            self.assertEqual(fws.spec["nested"]["deeply_nested"]["restart_count"], 3)
+
     def test_fizzle_on_no_restart_file(self):
         """Will run a recovery task that fizzles on no restart file."""
         logger = logging.getLogger(__name__)
