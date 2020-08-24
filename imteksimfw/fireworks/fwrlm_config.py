@@ -47,11 +47,14 @@ FW_CONFIG_PREFIX = os.path.join(os.path.expanduser('~'), ".fireworks")
 FW_CONFIG_FILE_NAME = "FW_config.yaml"
 FW_AUTH_FILE_NAME = "fireworks_mongodb_auth.yaml"
 
+# default loglevel for launcher scripts
+DEFAULT_LOGLEVEL = "DEBUG"
+
 LAUNCHPAD_LOC = os.path.join(os.path.expanduser('~'), "fw_launchpar")
 LOGDIR_LOC = os.path.join(os.path.expanduser('~'), "fw_logdir")
 
-# allow multiple rlaunch processes
-# MULTI_RLAUNCH_NTASKS = 0
+# allow multiple rlaunch processes (rlaunch multi)
+RLAUNCH_MULTI_NPROCESSES = 4
 # OMP_NUM_THREADS = 1
 
 # webgui settings

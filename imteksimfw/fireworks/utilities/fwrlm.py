@@ -127,7 +127,7 @@ class RLaunchManager(FireWorksRocketLauncherManager):
             'rlaunch',
             '-l', self.fw_auth_file_path,
             '-w', self.rlaunch_fworker_file,
-            '--loglvl', 'DEBUG', 'rapidfire',
+            '--loglvl', self.loglevel, 'rapidfire',
             '--nlaunches', 'infinite',
             '--sleep', self.rlaunch_interval,
         ]
@@ -164,9 +164,45 @@ class QLaunchManager(FireWorksRocketLauncherManager):
             '-l', self.fw_auth_file_path,
             '-w', self.qlaunch_fworker_file,
             '-q', self.qadapter_file,
-            '--loglvl', 'DEBUG', 'rapidfire',
+            '--loglvl', self.loglevel, 'rapidfire',
             '--nlaunches', 'infinite',
             '--sleep', self.qlaunch_interval,
+        ]
+        args = [a if isinstance(a, str) else str(a) for a in args]
+        self.logger.info("Evoking '{cmd:s}'".format(cmd=' '.join(args)))
+        p = subprocess.Popen(args, cwd=self.launchpad_loc)
+        outs, errs = p.communicate()
+        self.logger.info("Subprocess exited with return code = {}"
+             .format(p.returncode))
+
+
+class MLaunchManager(FireWorksRocketLauncherManager):
+    """FireWorks rlaunch multi daemon."""
+
+    @property
+    def pidfile_name(self):
+        return ".mlaunch.{user:s}@{host:}.pid".format(
+            user=getpass.getuser(), host=socket.gethostname())
+
+    @property
+    def outfile_name(self):
+        return os.path.join(self.logdir_loc, "mlaunch_{:s}.out"
+            .format(self.timestamp))
+
+    @property
+    def errfile_name(self):
+        return os.path.join(self.logdir_loc, "mlaunch_{:s}.err"
+            .format(self.timestamp))
+
+    def spawn(self):
+        """Spawn raunch multi."""
+        args = [
+            'rlaunch',
+            '-l', self.fw_auth_file_path,
+            '-w', self.rlaunch_fworker_file,
+            '--loglvl', self.loglevel, 'multi', self.rlaunch_multi_nprocesses,
+            '--nlaunches', 'infinite',
+            '--sleep', self.rlaunch_interval,
         ]
         args = [a if isinstance(a, str) else str(a) for a in args]
         self.logger.info("Evoking '{cmd:s}'".format(cmd=' '.join(args)))
@@ -199,6 +235,7 @@ class LPadRecoverOfflineManager(FireWorksRocketLauncherManager):
         args = [
             'lpad',
             '-l', self.fw_auth_file_path,
+            '--loglvl', self.loglevel,
             'recover_offline',
             '-w', self.qlaunch_fworker_file,
         ]

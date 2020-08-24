@@ -37,10 +37,12 @@ import psutil  # checking process status
 
 from imteksimfw.fireworks.fwrlm_config import \
   FW_CONFIG_PREFIX, FW_CONFIG_FILE_NAME, FW_AUTH_FILE_NAME, \
+  DEFAULT_LOGLEVEL, \
   LAUNCHPAD_LOC, LOGDIR_LOC, MACHINE, SCHEDULER, \
   MONGODB_HOST, SSH_PORT_REMOTE, SSH_PORT_LOCAL, \
   FIREWORKS_DB, FIREWORKS_USER, FIREWORKS_PWD, \
   SSH_HOST, SSH_USER, SSH_KEY, \
+  RLAUNCH_MULTI_NPROCESSES, \
   RLAUNCH_FWORKER_FILE, QLAUNCH_FWORKER_FILE, QADAPTER_FILE, \
   WEBGUI_USERNAME, WEBGUI_PASSWORD, WEBGUI_PORT
 
@@ -80,6 +82,10 @@ class FireWorksRocketLauncherManager():
         return os.path.join(FW_CONFIG_PREFIX, FW_CONFIG_FILE_NAME)
 
     @property
+    def loglevel(self):
+        return DEFAULT_LOGLEVEL
+
+    @property
     def machine(self):
         return MACHINE
 
@@ -97,6 +103,11 @@ class FireWorksRocketLauncherManager():
     @property
     def rlaunch_interval(self):
         return 10  # seconds
+
+    # rlaunch multi rleated properties
+    @property
+    def rlaunch_multi_nprocesses(self):
+        return RLAUNCH_MULTI_NPROCESSES
 
     # qlaunch related properties
     @property

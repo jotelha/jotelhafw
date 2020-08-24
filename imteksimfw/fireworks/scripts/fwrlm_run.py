@@ -34,8 +34,8 @@ import multiprocessing
 
 from imteksimfw.fireworks.utilities.fwrlm_base import pid
 from imteksimfw.fireworks.utilities.fwrlm import DummyManager, \
-    RLaunchManager, QLaunchManager, LPadRecoverOfflineManager, \
-    LPadWebGuiManager, SSHTunnelManager
+    RLaunchManager, MLaunchManager, QLaunchManager, \
+    LPadRecoverOfflineManager, LPadWebGuiManager, SSHTunnelManager
 
 from imteksimfw.fireworks.fwrlm_config import config_to_dict, \
     FW_CONFIG_PREFIX, FW_CONFIG_SKEL_PREFIX, FW_CONFIG_TEMPLATE_PREFIX
@@ -46,6 +46,7 @@ DAEMON_DICT = {
     'dummy': DummyManager,
     'ssh': SSHTunnelManager,
     'rlaunch': RLaunchManager,
+    'mlaunch': MLaunchManager,
     'qlaunch': QLaunchManager,
     'recover': LPadRecoverOfflineManager,
     'webgui': LPadWebGuiManager,
@@ -53,7 +54,7 @@ DAEMON_DICT = {
 
 DAEMON_SETS = {
     'all': [  # all services, including web gui
-        'rlaunch', 'qlaunch', 'recover', 'webgui'],
+        'rlaunch', 'mlaunch', 'qlaunch', 'recover', 'webgui'],
     'hpc-worker': [  # ssh tunnel to db, local and queue submission rocket launcher, recovery of offline runs
         'rlaunch', 'qlaunch', 'recover'],
     'local-worker': [  # ssh tunnel to db and local rocket launcher
@@ -235,10 +236,12 @@ def main():
         formatter_class=ArgumentDefaultsAndRawDescriptionHelpFormatter)
 
     # root-level options
-    parser.add_argument('--debug', default=False, required=False,
-                        action='store_true', dest="debug", help='debug')
-    parser.add_argument('--verbose', default=False, required=False,
-                        action='store_true', dest="verbose", help='verbose')
+    parser.add_argument('--debug', '-d', default=False, required=False,
+                        action='store_true', dest="debug", help='debug (loglevel DEBUG)')
+    parser.add_argument('--verbose', '-v', default=False, required=False,
+                        action='store_true', dest="verbose", help='verbose (loglevel INFO, default)')
+    parser.add_argument('--quiet', '-q', default=False, required=False,
+                        action='store_true', dest="quiet", help='quiet (logelevel WARNING)')
 
     parser.add_argument('--log', required=False, nargs='?', dest="log",
                         default=None, const='fwrlm.log', metavar='LOG',
@@ -362,13 +365,15 @@ def main():
 
     # logging
     logformat = "%(levelname)s: %(message)s"
-    if args.debug:
+    if args.debug and not args.quiet:
         logformat = (
             "[%(asctime)s-%(funcName)s()-%(filename)s:%(lineno)s]"
             " %(levelname)s: %(message)s"
         )
         loglevel = logging.DEBUG
-    elif args.verbose:
+    elif args.verbose and not args.quiet:
+        loglevel = logging.INFO
+    elif not args.quiet:
         loglevel = logging.INFO
     else:
         loglevel = logging.WARNING
