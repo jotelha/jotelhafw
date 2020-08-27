@@ -1,5 +1,11 @@
 # coding: utf-8
+import json
 import logging
+
+
+def _log_nested_dict(log_func, dct):
+    for l in json.dumps(dct, indent=2, default=str).splitlines():
+        log_func(l)
 
 class LoggingContext():
     """Modifies logging within context."""
