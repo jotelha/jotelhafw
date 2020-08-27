@@ -198,12 +198,14 @@ class GetObjectFromFilepadTask(FiretaskBase):
             else:
                 cursor = fpad.filepad.find(query).sort(sort_key, sort_direction)
 
-            d = next(cursor)
-            if fizzle_empty_result and d is None:
-                raise ValueError("Query yielded empty result! (query: {:s})".format(
-                    json.dumps(query)))
-            elif d is None:
-                logger.info("Query yielded empty result! (query: {:s})".format(json.dumps(query)))
+            try:
+                d = next(cursor)
+            except StopIteration:
+                if fizzle_empty_result:
+                    raise ValueError("Query yielded empty result! (query: {:s})".format(
+                        json.dumps(query)))
+                else:
+                    logger.info("Query yielded empty result! (query: {:s})".format(json.dumps(query)))
             else:
                 file_contents, doc = fpad._get_file_contents(d)
                 logger.debug("Metadata of queried object:")
@@ -252,7 +254,7 @@ class GetObjectFromFilepadTask(FiretaskBase):
                     logger.debug("Forwarding merge into '{}':".format(metadata_fw_dest_key))
                     _log_nested_dict(logger.debug, metadata)
 
-                    mod_spec.append([{dict_mod: {metadata_fw_dest_key: metadata}}])
+                    mod_spec.append({dict_mod: {metadata_fw_dest_key: metadata}})
 
         # end of ExitStack context
         output = {}
@@ -269,7 +271,7 @@ class GetObjectFromFilepadTask(FiretaskBase):
             fw_action.propagate = propagate
 
         if output_key:  # inject into fw_spec
-            mod_spec.append([{dict_mod: {output_key: output}}])
+            mod_spec.append({dict_mod: {output_key: output}})
 
         if len(mod_spec) > 0:
             fw_action.mod_spec = mod_spec
