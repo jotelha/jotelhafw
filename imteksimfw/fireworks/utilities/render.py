@@ -24,6 +24,7 @@
 # SOFTWARE.
 """Quickly renders jinja2 template files."""
 
+import json
 import logging
 import os
 import time
@@ -116,26 +117,60 @@ def get_context(c):
     return c
 
 # output helper functions
-def variable_overview(variables):
+def variable_output(variables, display_type='fancy_grid'):
+    if display_type == 'oneline':
+        return ','.join(variables)
+    elif display_type == 'terse':
+        return '\n'.join(variables)
+    elif display_type == 'json':
+        return json.dumps(list(variables))
+    else:
+        return str(variables)
+
+
+def variable_overview(variables, display_type='fancy_grid'):
     """Generates a tabular string representation of variables."""
-    lines = [['', *variables['all']]]
-    for t, tv in variables.items():
-        if t != 'all':
-            line = [t]
-            line.extend(['x' if v in tv else '' for v in variables['all']])
-            lines.append(line)
-    return tabulate(lines, tablefmt='fancy_grid')
+    if display_type == 'terse':
+        return '\n\n'.join([':\n'.join([k, '\n'.join(v)]) for k, v in variables.items()])
+    elif display_type == 'oneline':
+        return ';'.join([':'.join([k, ','.join(v)]) for k, v in variables.items()])
+    elif display_type == 'json':
+        return json.dumps({k: list(v) for k,v in variables.items()})
+    else:
+        lines = [['', *variables['all']]]
+        for t, tv in variables.items():
+            if t != 'all':
+                line = [t]
+                line.extend(['x' if v in tv else '' for v in variables['all']])
+                lines.append(line)
+        return tabulate(lines, tablefmt=display_type)
 
 
-def inspect(template_dir):
-    """Generates a tabular string representation of all undefined variables
+def get_undefined(template_dir):
+    env = TailoredEnvironment(template_dir)
+    undefined = env.find_undefined_variables()
+    return undefined
+
+
+def get_undefined_in_single_template(template_file):
+    template_dir = os.path.dirname(template_file)
+    template_name = os.path.basename(template_file)
+    env = TailoredEnvironment(template_dir)
+    undefined = env.find_undefined_variables_in_single_template(template_name)
+    return undefined
+
+
+def inspect_single(template_file, display_type=None):
+    undefined = get_undefined_in_single_template(template_file)
+    return variable_output(undefined, display_type)
+
+def inspect(template_dir, display_type=None):
+    """Generates a some string representation of all undefined variables
     in templates.
 
     Args:
         template_dir (str): all files within are treated as templates
-        build_dir (str): render templates within under their original name
-        context (str or dict): jinja2 context, YAML format if str
-            Same context used for all templates.
+        display_type (str): tabulate.tabulate tablefmt or 'terse'.
 
     Examples:
         Yields an overview of config parameter placeholders for FireWorks
@@ -169,9 +204,8 @@ def inspect(template_dir):
         │ nemo_queue_worker.yaml       │              │                  │             │            │                    │           │                │              │                   │         │               │
         ╘══════════════════════════════╧══════════════╧══════════════════╧═════════════╧════════════╧════════════════════╧═══════════╧════════════════╧══════════════╧═══════════════════╧═════════╧═══════════════╛
     """
-    env = TailoredEnvironment(template_dir)
-    undefined = env.find_undefined_variables()
-    return variable_overview(undefined)
+    undefined = get_undefined(template_dir)
+    return variable_overview(undefined, display_type)
 
 
 class TailoredEnvironment(Environment):
@@ -218,21 +252,25 @@ class TailoredEnvironment(Environment):
         with open(outfile_name, 'w') as of:
             of.write(output)
 
+    def find_undefined_variables_in_single_template(self, template_name):
+        """Find undefined variables withing single template."""
+        self.logger.info("Loading template {:s}.".format(template_name))
+        template_source = self.loader.get_source(self, template_name)[0]
+        try:
+            parsed_content = self.parse(template_source)
+        except Exception as exc:
+            self.logger.exception(
+                "Failed parsing template '{:s}' with exception '{}'."
+                    .format(template_name, exc))
+            raise exc
+        template_variables = meta.find_undeclared_variables(parsed_content)
+        return template_variables
+
     def find_undefined_variables(self):
-        """Finds all variables within template source"""
+        """Find all variables within template source"""
         template_variables = {'all': set()}
         for template_name in self.list_templates():
-            self.logger.info("Loading template {:s}.".format(template_name))
-            template_source = self.loader.get_source(self, template_name)[0]
-            try:
-                parsed_content = self.parse(template_source)
-            except Exception as exc:
-                self.logger.exception(
-                    "Failed parsing template '{:s}' with exception '{}'."
-                        .format(template_name, exc))
-                raise exc
-            template_variables[template_name] = meta.find_undeclared_variables(
-                parsed_content)
+            template_variables[template_name] = self.find_undefined_variables_in_single_template(template_name)
             template_variables['all'] = \
                 template_variables['all'] | template_variables[template_name]
         return template_variables

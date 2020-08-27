@@ -34,7 +34,7 @@ from imteksimfw.fireworks.fwrlm_config import config_to_dict
 from imteksimfw.fireworks.fwrlm_config import FW_CONFIG_PREFIX
 from imteksimfw.fireworks.fwrlm_config import FW_CONFIG_TEMPLATE_PREFIX
 from imteksimfw.fireworks.utilities.render import render_single, render_batch
-from imteksimfw.fireworks.utilities.render import inspect
+from imteksimfw.fireworks.utilities.render import inspect_single, inspect
 
 
 def render_single_action(args):
@@ -85,9 +85,14 @@ def render_inspect_action(args):
     """Translate argparsed `args` to function call `inspect` from
     imteksimfw.fireworks.utilities.render"""
     logger = logging.getLogger(__name__)
-    logger.info("Inspect templates in {:s}  for undefined variables".format(
-        args.template_dir))
-    out = inspect(args.template_dir)
+    if os.path.isfile(args.template_dir):
+        logger.info("Inspect template file {:s} for undefined variables".format(
+            args.template_dir))
+        out = inspect_single(args.template_dir, display_type=args.display_type)
+    else:
+        logger.info("Inspect templates in {:s}  for undefined variables".format(
+            args.template_dir))
+        out = inspect(args.template_dir, display_type=args.display_type)
     print(out)
 
 
@@ -179,15 +184,26 @@ def main():
 
     # inspect arguments
     render_inspect_parser = subparsers.add_parser(
-        'inspect', help='Inspect set of templates.',
+        'inspect', help='Inspect single or set of templates.',
         formatter_class=ArgumentDefaultsAndRawDescriptionHelpFormatter)
 
     render_inspect_parser.add_argument(
         'template_dir',
-        help="Directory containing templates.", metavar='TEMPLATE_DIR',
+        help="Name of template file or directory containing templates.", metavar='TEMPLATE_DIR',
         default=FW_CONFIG_TEMPLATE_PREFIX, nargs='?')
 
-    render_inspect_parser.set_defaults(func=render_inspect_action)
+    render_inspect_parser.add_argument('--display-type', '-d',
+        dest="display_type", help='output display type')
+
+    render_inspect_parser.add_argument('--terse', '-t', const='terse',
+        action='store_const', dest="display_type", help='terse output')
+
+    render_inspect_parser.add_argument('--oneline', '-1', const='oneline',
+        action='store_const', dest="display_type", help='terse output')
+
+
+
+    render_inspect_parser.set_defaults(func=render_inspect_action, display_type='fancy_grid')
 
     try:
         import argcomplete
