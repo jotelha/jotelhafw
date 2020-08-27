@@ -236,7 +236,7 @@ class GetObjectFromFilepadTask(FiretaskBase):
                         fw_metadata = fw_spec
                         logger.debug("Merging with fw_spec.")
                     elif metadata_fw_source_key:
-                        fw_metadata = get_nested_dict_value(doc, metadata_fw_source_key)
+                        fw_metadata = get_nested_dict_value(fw_spec, metadata_fw_source_key)
                         logger.debug("Merging with '{}' subset of fw_spec:".format(metadata_fw_source_key))
                         _log_nested_dict(logger.debug, fw_metadata)
                     else:
