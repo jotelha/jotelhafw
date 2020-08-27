@@ -243,13 +243,13 @@ class GetObjectFromFilepadTask(FiretaskBase):
                         fw_metadata = {}
 
                     if fw_supersedes_fp:
-                        metadata = dict_merge(fw_metadata, fp_metadata,
-                                              exclusions=metadata_fw_exclusions,
-                                              merge_exclusions=metadata_fp_exclusions)
-                    else:
                         metadata = dict_merge(fp_metadata, fw_metadata,
                                               exclusions=metadata_fp_exclusions,
                                               merge_exclusions=metadata_fw_exclusions)
+                    else:
+                        metadata = dict_merge(fw_metadata, fp_metadata,
+                                              exclusions=metadata_fw_exclusions,
+                                              merge_exclusions=metadata_fp_exclusions)
 
                     logger.debug("Forwarding merge into '{}':".format(metadata_fw_dest_key))
                     _log_nested_dict(logger.debug, metadata)
