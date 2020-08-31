@@ -285,17 +285,35 @@ env:
 
       pdb_chain:
         init:
-        - 'module("load","GCC/8.3.0","pdb-tools/2.0.1-Python-3.6.8")'
+        - 'module("load","GCC/8.3.0","pdb-tools/devel-mod-Python-3.6.8")'
         - 'module("list")'
-
+      pdb_delresname:
+        init:
+        - 'module("load","GCC/8.3.0","pdb-tools/devel-mod-Python-3.6.8")'
+        - 'module("list")'
+      pdb_reatom_99999:
+        init:
+        - 'module("load","GCC/8.3.0","pdb-tools/devel-mod-Python-3.6.8")'
+        - 'module("list")'
       pdb_reres:
         init:
-        - 'module("load","GCC/8.3.0","pdb-tools/2.0.1-Python-3.6.8")'
+        - 'module("load","GCC/8.3.0","pdb-tools/devel-mod-Python-3.6.8")'
         - 'module("list")'
-
+      pdb_reres_9999:
+        init:
+        - 'module("load","GCC/8.3.0","pdb-tools/devel-mod-Python-3.6.8")'
+        - 'module("list")'
+      pdb_reres_by_atom_9999:
+        init:
+        - 'module("load","GCC/8.3.0","pdb-tools/devel-mod-Python-3.6.8")'
+        - 'module("list")'
+      pdb_selresname:
+        init:
+        - 'module("load","GCC/8.3.0","pdb-tools/devel-mod-Python-3.6.8")'
+        - 'module("list")'
       pdb_tidy:
         init:
-        - 'module("load","GCC/8.3.0","pdb-tools/2.0.1-Python-3.6.8")'
+        - 'module("load","GCC/8.3.0","pdb-tools/devel-mod-Python-3.6.8")'
         - 'module("list")'
 
       pizza.py:
