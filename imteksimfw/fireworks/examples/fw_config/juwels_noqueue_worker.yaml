@@ -337,7 +337,8 @@ env:
 
       vmd:
         init:
-        - 'module("load","jlhvmd")'
+        - 'module("load","VMD/text-1.9.3-Python-2.7.16-Tcl-8.6.9")'
+        - 'module("load","topotools/devel-Tcl-8.6.9","pbctools/devel-Tcl-8.6.9","mergetools/0.1-Tcl-8.6.9")'
         - 'module("list")'
 
       smbsync.py:
@@ -352,6 +353,8 @@ env:
     - 'module("purge", "--force")'
     - 'module("list")'
     - 'module("load","Stages/2019a","Intel/2019.3.199-GCC-8.3.0","IntelMPI/2019.3.199")'
+    - 'module("list")'
+    - 'module("load","mpi4py/3.0.1-Python-3.6.8")'
     - 'module("list")'
     - 'module("load","ASE/3.17.0-Python-3.6.8")'
     - 'module("list")'
@@ -370,6 +373,8 @@ env:
     - 'module("list")'
     - 'module("load","Stages/2019a","Intel/2019.3.199-GCC-8.3.0","IntelMPI/2019.3.199")'
     - 'module("list")'
+    - 'module("load","mpi4py/3.0.1-Python-3.6.8")'
+    - 'module("list")'
     - 'module("load","MDAnalysis/0.20.1-Python-3.6.8")'
     - 'module("list")'
     - 'for d in list(set(os.environ["PYTHONPATH"].split(":")) - set(sys.path)): site.addsitedir(d)'
@@ -382,6 +387,8 @@ env:
     - 'module("purge", "--force")'
     - 'module("list")'
     - 'module("load","Stages/2019a","Intel/2019.3.199-GCC-8.3.0","IntelMPI/2019.3.199")'
+    - 'module("list")'
+    - 'module("load","mpi4py/3.0.1-Python-3.6.8")'
     - 'module("list")'
     - 'module("load","ASE/3.17.0-Python-3.6.8")'
     - 'module("list")'
