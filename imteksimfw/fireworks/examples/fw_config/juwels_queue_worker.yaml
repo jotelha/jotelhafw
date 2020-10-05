@@ -380,7 +380,10 @@ env:
     - 'module("list")'
     - 'for d in list(set(os.environ["PYTHONPATH"].split(":")) - set(sys.path)): site.addsitedir(d)'
     # this last line is nasty
-
+    cmd:
+      python:
+        prefix: 'srun'
+  
   ase:
     init:
     - 'import site, sys, os, importlib, builtins'
