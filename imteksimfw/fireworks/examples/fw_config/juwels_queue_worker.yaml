@@ -325,6 +325,7 @@ env:
         init:
         - 'module("load","GCC/8.3.0","PyMOL/2.3.0-mod-Python-3.6.8")'
         - 'module("list")'
+        prefix: 'srun'
 
       strip_comments.py:
         init:
