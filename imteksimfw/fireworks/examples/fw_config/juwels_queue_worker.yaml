@@ -377,6 +377,8 @@ env:
     - 'module("list")'
     - 'module("load","mpi4py/3.0.1-Python-3.6.8")'
     - 'module("list")'
+    - 'module("load","imteksimcs/devel-local-Python-3.6.8")'
+    - 'module("list")'
     - 'module("load","MDAnalysis/0.20.1-Python-3.6.8")'
     - 'module("list")'
     - 'for d in list(set(os.environ["PYTHONPATH"].split(":")) - set(sys.path)): site.addsitedir(d)'
