@@ -340,7 +340,7 @@ env:
       vmd:
         init:
         - 'module("load","VMD/text-1.9.3-Python-2.7.16-Tcl-8.6.9")'
-        - 'module("load","topotools/devel-Tcl-8.6.9","pbctools/devel-Tcl-8.6.9","mergetools/0.1-Tcl-8.6.9")'
+        - 'module("load","topotools/devel-Tcl-8.6.9","pbctools/devel-Tcl-8.6.9","mergetools/0.2-Tcl-8.6.9")'
         - 'module("list")'
 
       smbsync.py:
