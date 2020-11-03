@@ -35,8 +35,9 @@ import ruamel.yaml as yaml
 import subprocess  # TODO: replace cli sub-processes with custom verify calls
 
 import dtoolcore
+from imteksimfw.fireworks.utilities.environ import TemporaryOSEnviron
 from imteksimfw.fireworks.user_objects.firetasks.dtool_tasks import (
-    CreateDatasetTask, FreezeDatasetTask, CopyDatasetTask, TemporaryOSEnviron)
+    CreateDatasetTask, FreezeDatasetTask, CopyDatasetTask)
 
 module_dir = os.path.abspath(os.path.dirname(__file__))
 
@@ -210,6 +211,18 @@ def verify(full, dataset_uri):
 
 
 class DtoolTasksTest(unittest.TestCase):
+
+    smb_avail = False
+
+    @classmethod
+    def setUpClass(cls):
+        # bring up smb server container if available
+        pass
+
+    @classmethod
+    def tearDownClass(cls):
+        pass
+
     def setUp(self):
         logger = logging.getLogger(__name__)
 
@@ -593,6 +606,7 @@ class DtoolTasksTest(unittest.TestCase):
 
         return uri
 
+    #@unittest.skipUnless(DtoolTasksTest.smb_avail, "No smb server available.")
     def test_copy_dataset_task_to_smb_share(self):
         """Requires a guest-writable share named 'sambashare' available locally.
 
@@ -617,6 +631,8 @@ class DtoolTasksTest(unittest.TestCase):
 
         You may as well modify access parameters within 'dtool.json' config.
         """
+        if not self.smb_avail:
+            self.skipTest("No smb server available.")
         logger = logging.getLogger(__name__)
 
         # create a dummy dataset locally for transferring to share

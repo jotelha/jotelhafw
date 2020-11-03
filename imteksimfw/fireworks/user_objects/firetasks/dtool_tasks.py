@@ -22,21 +22,18 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-"""Simple Fireworks interfacre for handling dtool datasets."""
+"""Simple Fireworks interface for handling dtool datasets."""
 
 from abc import abstractmethod
 from contextlib import ExitStack
 
-import collections
 import copy  # for deep copies of nested objects, avoid references in YAML dumps
 import datetime
 import getpass  # get system username for dtool metadata
 import glob
 import io
-import json
 import logging
 import os
-import pymongo
 import uuid
 
 from ruamel.yaml import YAML
@@ -52,9 +49,10 @@ from fireworks.core.firework import FWAction
 from fireworks.utilities.dict_mods import get_nested_dict_value
 from fireworks.utilities.fw_serializers import ENCODING_PARAMS
 
-from imteksimfw.fireworks.utilities.multiprocessing import RunAsChildProcessTask
-from imteksimfw.fireworks.utilities.logging import LoggingContext, _log_nested_dict
+from imteksimfw.fireworks.utilities.environ import TemporaryOSEnviron
 from imteksimfw.fireworks.utilities.dict import simple_dict_merge as dict_merge
+from imteksimfw.fireworks.utilities.logging import LoggingContext, _log_nested_dict
+from imteksimfw.fireworks.utilities.multiprocessing import RunAsChildProcessTask
 
 
 __author__ = 'Johannes Laurin Hoermann'
