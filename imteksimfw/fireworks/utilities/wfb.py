@@ -1,3 +1,27 @@
+# coding: utf-8
+#
+# wfb.py
+#
+# Copyright (C) 2020 IMTEK Simulation
+# Author: Johannes Hoermann, johannes.hoermann@imtek.uni-freiburg.de
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
 """ Workflow Builder, facilitates workflow constructionm """
 
 __author__ = 'Johannes Hörmann'
@@ -31,7 +55,7 @@ def get_context(c):
     return c
 
 class WorkflowBuilder:
-    
+
     @property
     def topological_order(self):
         return list(reversed(self.postorder()))
@@ -59,7 +83,7 @@ class WorkflowBuilder:
 
     def __init__(self, system_file = None):
         self.logger = logging.getLogger(__name__)
-        
+
         self.std_context         = {}
         self.persistent_contexts = {}
         self.transient_contexts  = {}
@@ -71,18 +95,18 @@ class WorkflowBuilder:
 
         self.g = igraph.Graph(directed=True)
         self.h = igraph.Graph(directed=True)
-    
+
         self.t = None # degenerate tree
-    
+
         self.topological_order = None
-    
+
         self.root = None
-    
+
         #  template engine
         self.env = None
-    
+
         #logger = None
-    
+
         # plot settings
         self.plt_layout = None
         self.plt_label_font_size = 10

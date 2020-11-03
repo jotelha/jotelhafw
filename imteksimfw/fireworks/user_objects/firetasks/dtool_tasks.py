@@ -1,6 +1,28 @@
 # coding: utf-8
-
-from __future__ import unicode_literals
+#
+# dtool_tasks.py
+#
+# Copyright (C) 2020 IMTEK Simulation
+# Author: Johannes Hoermann, johannes.hoermann@imtek.uni-freiburg.de
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+"""Simple Fireworks interfacre for handling dtool datasets."""
 
 from abc import abstractmethod
 from contextlib import ExitStack
@@ -14,6 +36,7 @@ import io
 import json
 import logging
 import os
+import pymongo
 import uuid
 
 from ruamel.yaml import YAML
@@ -25,12 +48,14 @@ import dtool_create.dataset
 
 from fireworks.fw_config import FW_LOGGING_FORMAT
 
-from fireworks.core.firework import FiretaskBase, FWAction
+from fireworks.core.firework import FWAction
 from fireworks.utilities.dict_mods import get_nested_dict_value
 from fireworks.utilities.fw_serializers import ENCODING_PARAMS
 
 from imteksimfw.fireworks.utilities.multiprocessing import RunAsChildProcessTask
-from imteksimfw.fireworks.utilities.logging import LoggingContext
+from imteksimfw.fireworks.utilities.logging import LoggingContext, _log_nested_dict
+from imteksimfw.fireworks.utilities.dict import simple_dict_merge as dict_merge
+
 
 __author__ = 'Johannes Laurin Hoermann'
 __copyright__ = 'Copyright 2020, IMTEK Simulation, University of Freiburg'
@@ -38,49 +63,6 @@ __email__ = 'johannes.hoermann@imtek.uni-freiburg.de, johannes.laurin@gmail.com'
 __date__ = 'Apr 27, 2020'
 
 DEFAULT_FORMATTER = logging.Formatter(FW_LOGGING_FORMAT)
-
-def _log_nested_dict(log_func, dct):
-    for l in json.dumps(dct, indent=2, default=str).splitlines():
-        log_func(l)
-
-
-# from https://gist.github.com/angstwad/bf22d1822c38a92ec0a9
-def dict_merge(dct, merge_dct, add_keys=True):
-    """ Recursive dict merge. Inspired by :meth:``dict.update()``, instead of
-    updating only top-level keys, dict_merge recurses down into dicts nested
-    to an arbitrary depth, updating keys. The ``merge_dct`` is merged into
-    ``dct``.
-
-    This version will return a copy of the dictionary and leave the original
-    arguments untouched.
-
-    The optional argument ``add_keys``, determines whether keys which are
-    present in ``merge_dict`` but not ``dct`` should be included in the
-    new dict.
-
-    Args:
-        dct (dict) onto which the merge is executed
-        merge_dct (dict): dct merged into dct
-        add_keys (bool): whether to add new keys
-
-    Returns:
-        dict: updated dict
-    """
-    dct = dct.copy()
-    if not add_keys:
-        merge_dct = {
-            k: merge_dct[k]
-            for k in set(dct).intersection(set(merge_dct))
-        }
-
-    for k, v in merge_dct.items():
-        if (k in dct and isinstance(dct[k], dict)
-                and isinstance(v, collections.Mapping)):
-            dct[k] = dict_merge(dct[k], v, add_keys=add_keys)
-        else:
-            dct[k] = v
-
-    return dct
 
 
 def from_fw_spec(param, fw_spec):
@@ -126,35 +108,6 @@ def _get_readme_template(fpath=None):
     )
 
     return readme_template
-
-class TemporaryOSEnviron:
-    """Preserve original os.environ context manager."""
-
-    def __init__(self, env=None):
-        """env is a flat dict to be inserted into os.environ."""
-        self._insertions = env
-
-    def __enter__(self):
-        """Store backup of current os.environ."""
-        logger = logging.getLogger(__name__)
-        logger.debug("Backed-up os.environ:")
-        _log_nested_dict(logger.debug, os.environ)
-        self._original_environ = os.environ.copy()
-
-        if self._insertions:
-            for k, v in self._insertions.items():
-                logger.debug("Inject env var '{}' = '{}'".format(k, v))
-                os.environ[k] = str(v)
-
-        logger.debug("Initial modified os.environ:")
-        _log_nested_dict(logger.debug, os.environ)
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Restore backed up os.environ."""
-        logger = logging.getLogger(__name__)
-        os.environ = self._original_environ
-        logger.debug("Recovered os.environ:")
-        _log_nested_dict(logger.debug, os.environ)
 
 
 class DtoolTask(RunAsChildProcessTask):
@@ -458,19 +411,21 @@ class CreateDatasetTask(DtoolTask):
                         logger.info(
                             "Source dataset #{} has name '{}', uri '{}', and uuid '{}'."
                             .format(i,
-                                current_source_dataset.name,
-                                current_source_dataset.uri,
-                                current_source_dataset.uuid))
+                                    current_source_dataset.name,
+                                    current_source_dataset.uri,
+                                    current_source_dataset.uuid))
 
                         if 'name' in d and d['name'] != current_source_dataset.name:
-                            logger.waning(("Source dataset #{} actual name '{}' "
+                            logger.waning((
+                                "Source dataset #{} actual name '{}' "
                                 "does not agree with specified default '{}'. "
                                 "Former will override latter.").format(
                                     i, current_source_dataset.name, d["name"]))
                         d["name"] = current_source_dataset.name
 
                         if 'uuid' in d and d['uuid'] != current_source_dataset.uuid:
-                            logger.waning(("Source dataset #{} actual UUID '{}' "
+                            logger.waning((
+                                "Source dataset #{} actual UUID '{}' "
                                 "does not agree with specified default '{}'. "
                                 "Former will override latter.").format(
                                     i, current_source_dataset.uuid, d["uuid"]))
