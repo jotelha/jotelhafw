@@ -249,14 +249,15 @@ class DtoolTasksTest(unittest.TestCase):
     samba_container_name = None
     samba_container_id = None
 
+    # TODO: place this podman wrapper outside of tests in some workflow
     @classmethod
     def setUpClass(cls):
-        # first, bring up podman system service, i.e. via
-        #    podman system service --timeout 50000
-        # bring up smb server container if available
-        # for running podman from python
-        #    systemctl enable --now io.podman.socket
-        # podman run -it -p 13900:139 -p 44500:445 -d dperson/samba -p -s "public;/share;yes;no;yes"
+        # this set up accomplishes what others is achieved via command line,
+        # i.e. bring up podman system service first, via
+        #    podman system service --timeout 0
+        # then bring up smb server container , i.e. with
+        #    podman run -it -p 13900:139 -p 44500:445 -d dperson/samba \
+        #       -p -S -w WORKGROUP -s "sambashare;/share;yes;no;yes"
         logger = logging.getLogger(__name__)
 
         cls.podman_port = _allocate_random_free_port(PODMAN_HOST)
