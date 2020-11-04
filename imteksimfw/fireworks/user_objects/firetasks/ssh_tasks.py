@@ -29,6 +29,7 @@ __date__ = 'May 7, 2020'
 
 from contextlib import ExitStack
 
+import io
 import logging
 import os.path
 import paramiko

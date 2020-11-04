@@ -171,7 +171,7 @@ class RecoverPackmolTask(FiretaskBase):
                 break
 
             if key not in files_to_forward: # no file found for any of the glob patterns in list
-                raise ValueException("No file to forward found for any of {:s} --> {} globbing.".format(key, glob_pattern_list))
+                raise ValueError("No file to forward found for any of {:s} --> {} globbing.".format(key, glob_pattern_list))
 
         print('Files to be stored:    {}'.format(files_to_copy))
         print('Files to be forwarded: {}'.format(files_to_forward))
