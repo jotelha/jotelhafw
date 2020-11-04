@@ -64,6 +64,7 @@ if __name__ == "__main__":
                 # ssh tests
                 'mock-ssh-server>=0.8.1',
                 # dtool smb tasks tests
+                'dtool-smb>=0.1.0',
                 'requests>=2.24.0',
                 'urllib3>=1.25.11',
             ],
