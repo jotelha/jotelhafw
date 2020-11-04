@@ -24,28 +24,58 @@ __copyright__ = 'Copyright 2020, IMTEK Simulation, University of Freiburg'
 __email__ = 'johannes.hoermann@imtek.uni-freiburg.de, johannes.laurin@gmail.com'
 __date__ = 'Apr 27, 2020'
 
+import json
 import logging
 import unittest
+import urllib3
 import os
+import random
+import requests
+import socket
+import string
 import tempfile
-import json
+import time
+# import threading
 import ruamel.yaml as yaml
 
 # needs dtool cli for verification
 import subprocess  # TODO: replace cli sub-processes with custom verify calls
 
+
 import dtoolcore
+from fireworks.utilities.fw_serializers import ENCODING_PARAMS
+
 from imteksimfw.fireworks.utilities.environ import TemporaryOSEnviron
+from imteksimfw.fireworks.utilities.logging import _log_nested_dict
 from imteksimfw.fireworks.user_objects.firetasks.dtool_tasks import (
     CreateDatasetTask, FreezeDatasetTask, CopyDatasetTask)
 
 module_dir = os.path.abspath(os.path.dirname(__file__))
 
+PODMAN_HOST = 'localhost'
+PODMAN_RESTFUL_API_VERSION = '1.40.0'
+PODMAN_RESTFUL_API_REQUEST_TEMPLATE = "http://{host:}:{port:}/v{version:}"
 
-def _log_nested_dict(dct):
+SAMBA_CONTAINER_IMAGE_NAME = 'docker.io/dperson/samba:latest'
+SAMBA_HOST ='localhost'
+
+def _random_string(
+    size=9,
+    prefix="test_",
+    chars=string.ascii_uppercase + string.ascii_lowercase + string.digits
+):
+    return prefix + ''.join(random.choice(chars) for _ in range(size))
+
+
+def _allocate_random_free_port(host='localhost'):
     logger = logging.getLogger(__name__)
-    for l in json.dumps(dct, indent=2, default=str).splitlines():
-        logger.debug(l)
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind((host, 0))
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    _, local_port = s.getsockname()
+    logger.info("Allocated free local port: {:d}".format(local_port))
+    return local_port
+
 
 def _read_json(file):
     with open(file, 'r') as stream:
@@ -66,7 +96,7 @@ def _inject(source, injection, marker):
                 # inject here
                 logger.debug(
                     "'{}' from injection[{}] overrides '{}' in source[{}]."
-                        .format(injection[v], v, source[k], k))
+                    .format(injection[v], v, source[k], k))
                 source[k] = injection[v]
             else:
                 # descend
@@ -123,32 +153,31 @@ def _compare_frozen_metadata_against_template(
     logger = logging.getLogger(__name__)
     frozen_readme = _read_yaml(readme_file)
     logger.debug("Frozen README.yml:")
-    _log_nested_dict(frozen_readme)
+    _log_nested_dict(logger.debug, frozen_readme)
 
     reference_readme = _read_yaml(template_file)
     logger.debug("Reference README.yml:")
-    _log_nested_dict(reference_readme)
+    _log_nested_dict(logger.debug, reference_readme)
 
     dtool_config = _read_json(config_file)
     logger.debug("dtool config:")
-    _log_nested_dict(dtool_config)
+    _log_nested_dict(logger.debug, dtool_config)
 
     logger.debug("Comaprison mode:")
-    _log_nested_dict(to_compare)
+    _log_nested_dict(logger.debug, to_compare)
 
     parsed_reference_readme = _inject(
         reference_readme, dtool_config, to_compare)
 
     logger.debug("Parsed reference README.yml:")
-    _log_nested_dict(parsed_reference_readme)
+    _log_nested_dict(logger.debug, parsed_reference_readme)
 
     return _compare(frozen_readme, parsed_reference_readme, to_compare)
 
 
 # see https://github.com/jic-dtool/dtool-info/blob/64e021dc06cc6dc6df3d5858fda3e553fa18b91d/dtool_info/dataset.py#L354
 def verify(full, dataset_uri):
-    """Verify the integrity of a dataset.
-    """
+    """Verify the integrity of a dataset."""
     logger = logging.getLogger(__name__)
     dataset = dtoolcore.DataSet.from_uri(dataset_uri)
     all_okay = True
@@ -213,15 +242,202 @@ def verify(full, dataset_uri):
 class DtoolTasksTest(unittest.TestCase):
 
     smb_avail = False
+    podman = None
+    podman_port = None
+    smb_port_139 = None
+    smb_port_445 = None
+    samba_container_name = None
+    samba_container_id = None
 
     @classmethod
     def setUpClass(cls):
+        # first, bring up podman system service, i.e. via
+        #    podman system service --timeout 50000
         # bring up smb server container if available
-        pass
+        # for running podman from python
+        #    systemctl enable --now io.podman.socket
+        # podman run -it -p 13900:139 -p 44500:445 -d dperson/samba -p -s "public;/share;yes;no;yes"
+        logger = logging.getLogger(__name__)
+
+        cls.podman_port = _allocate_random_free_port(PODMAN_HOST)
+        base_uri = "tcp:{host:}:{port:}".format(host=PODMAN_HOST, port=cls.podman_port)
+
+        cmd = ['podman', 'system', 'service', base_uri,
+               '--log-level', 'debug', '--timeout', '0'],
+
+        logger.debug("Launching '{}'".format(' '.join(*cmd)))
+        cls.podman = subprocess.Popen(
+            *cmd,
+            stdin=None,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            env=os.environ, **ENCODING_PARAMS)
+
+        # request = "http://localhost:8080/v1.40.0/libpod/info")
+        request_template = PODMAN_RESTFUL_API_REQUEST_TEMPLATE.format(
+            host=PODMAN_HOST, port=cls.podman_port,
+            version=PODMAN_RESTFUL_API_VERSION) + '/{}'
+        request = request_template.format('libpod/info')
+        while(True):
+            try:
+                response = requests.get(request)
+            except requests.exceptions.ConnectionError as exc:
+                logger.warning("Retrying after connection timeout: '{}'".format(exc))
+                time.sleep(1)
+            else:
+                break
+
+        if response.status_code != 200:
+            logger.warning(
+                "No connection via RESTful API to podman '{}: {}'".format(
+                    response.status_code, response.text))
+            return
+        info = json.loads(response.text)
+        logger.info("Podman API info:")
+        _log_nested_dict(logger.info, info)
+
+        logger.info("Check image '{}' existance.".format(SAMBA_CONTAINER_IMAGE_NAME))
+        uri_suffix = 'libpod/images/{}/exists'.format(SAMBA_CONTAINER_IMAGE_NAME)
+        request = request_template.format(uri_suffix)
+        response = requests.get(request)
+        if response.status_code == 404:
+            logger.info("Image '{}' does not exist, creation not implemented.".format(SAMBA_CONTAINER_IMAGE_NAME))
+            return
+            # uri_suffix = 'libpod/images/pull'
+            # request = request_template.format(uri_suffix)
+            # response = requests.post(request, )
+        elif response.status_code != 204:
+            logger.warn("Unexpected error at image existance check {}: '{}'.".format(
+                        response.status_code, response.text))
+            return
+
+        cls.smb_port_139 = _allocate_random_free_port(SAMBA_HOST)
+        cls.smb_port_445 = _allocate_random_free_port(SAMBA_HOST)
+        cls.samba_container_name = _random_string()
+        request = request_template.format('libpod/containers/create')
+        request_params = {
+            'image': SAMBA_CONTAINER_IMAGE_NAME,
+            'name': cls.samba_container_name,
+            'portmappings': [
+                {
+                    'container_port': 139,
+                    'host_port': cls.smb_port_139,
+                },
+                {
+                    'container_port': 445,
+                    'host_port': cls.smb_port_445,
+                }
+            ],
+            'command': ["-p", "-S", "-w", "WORKGROUP", "-s", "sambashare;/share;yes;no;yes"]
+            # refer to https://hub.docker.com/r/dperson/samba
+            # -s "<name;/path>[;browse;readonly;guest;users;admins;writelist;comment]"
+            #             Configure a share
+            #             required arg: "<name>;</path>"
+            #             <name> is how it's called for clients
+            #             <path> path to share
+            #             NOTE: for the default values, just leave blank
+            #             [browsable] default:'yes' or 'no'
+            #             [readonly] default:'yes' or 'no'
+            #             [guest] allowed default:'yes' or 'no'
+            #             NOTE: for user lists below, usernames are separated by ','
+            #             [users] allowed default:'all' or list of allowed users
+            #             [admins] allowed default:'none' or list of admin users
+            #             [writelist] list of users that can write to a RO share
+            #             [comment] description of share
+        }
+        logger.info("Create container '{}': '{}'..".format(request, request_params))
+        response = requests.post(request, json=request_params)
+        if response.status_code == 201:
+            cls.samba_container_id = response.json()['Id']
+            logger.info("Created container '{}': '{}'.".format(
+                        cls.samba_container_id, cls.samba_container_name))
+        else:
+            logger.warn("Unexpected error at container creation {}: '{}'.".format(
+                        response.status_code, response.text))
+            return
+
+        uri_suffix = 'libpod/containers/{}/start'.format(cls.samba_container_id)
+        request = request_template.format(uri_suffix)
+        logger.info("Start container '{}'".format(request))
+        response = requests.post(request)
+        if response.status_code == 204:
+            logger.info("Container '{}': '{}' started successfully.".format(
+                cls.samba_container_id, cls.samba_container_name))
+        elif response.status_code == 304:
+            logger.warning("Container '{}': '{}' already running.".format(
+                cls.samba_container_id, cls.samba_container_name))
+            # stop?
+        else:
+            logger.warn("Unexpected error at container launch {}: '{}'.".format(
+                        response.status_code, response.text))
+            return
+
+        cls.smb_avail = True
 
     @classmethod
     def tearDownClass(cls):
-        pass
+        logger = logging.getLogger(__name__)
+
+        request_template = PODMAN_RESTFUL_API_REQUEST_TEMPLATE.format(
+            host=PODMAN_HOST, port=cls.podman_port,
+            version=PODMAN_RESTFUL_API_VERSION) + '/{}'
+
+        if cls.samba_container_id:
+            # stop container
+            uri_suffix = "libpod/containers/{name:}/stop".format(name=cls.samba_container_id)
+            request = request_template.format(uri_suffix)
+            try:
+                response = requests.post(request)
+            except urllib3.exceptions.MaxRetryError as exc:
+                logger.warning("Unexpected exception '{}' when sending conatiner stop request.".format(exc))
+            else:
+                if response.status_code == 204:
+                    logger.info("Container '{}': '{}' stopped successfully.".format(
+                        cls.samba_container_id, cls.samba_container_name))
+                elif response.status_code == 304:
+                    logger.warning("Container '{}': '{}' not running.".format(
+                        cls.samba_container_id, cls.samba_container_name))
+                else:
+                    logger.error(
+                        "Unexpected error when stopping container '{}': '{}' - {}.".format(
+                            cls.samba_container_id, cls.samba_container_name, response.text))
+
+            # remove container
+            uri_suffix = "libpod/containers/{name:}".format(name=cls.samba_container_id)
+            try:
+                request = request_template.format(uri_suffix)
+            except urllib3.exceptions.MaxRetryError as exc:
+                logger.warning("Unexpected exception '{}' when sending conatiner stop request.".format(exc))
+            else:
+                response = requests.delete(request, params={'v': True})  # v: delete attached volumes
+                if response.status_code == 204:
+                    logger.info("Container '{}': '{}' removed successfully.".format(
+                        cls.samba_container_id, cls.samba_container_name))
+                else:
+                    logger.error(
+                        "Unexpected error when stopping container '{}': '{}' - {}.".format(
+                            cls.samba_container_id, cls.samba_container_name, response.text))
+
+            cls.samba_container_id = None
+
+        if cls.podman:  # above cls.samba_container_id implicates cls.podman
+            ret = cls.podman.poll()
+            if isinstance(ret, int):
+                logger.warning("podman system service returned with {}.".format(ret))
+            else:  # None
+                logger.info("Stopping podman system service....")
+                cls.podman.terminate()
+
+            outs, errs = cls.podman.communicate(timeout=3)
+
+            logger.debug("podman system service stdout")
+            for line in outs.splitlines():
+                logger.debug(line)
+
+            logger.debug("podman system service stderr")
+            for line in errs.splitlines():
+                logger.debug(line)
+
+            cls.podman = None
 
     def setUp(self):
         logger = logging.getLogger(__name__)
@@ -255,8 +471,16 @@ class DtoolTasksTest(unittest.TestCase):
 
         # inject configuration into environment:
         dtool_config = _read_json(self.files['dtool_config_path'])
+        dynamic_dtool_config_overrides = {
+            "DTOOL_SMB_SERVER_NAME_test-share": SAMBA_HOST,
+            "DTOOL_SMB_SERVER_PORT_test-share": self.smb_port_445,
+        }
+        dtool_config.update(dynamic_dtool_config_overrides)
+
         logger.debug("dtool config overrides:")
-        _log_nested_dict(dtool_config)
+        _log_nested_dict(logger.debug, dtool_config)
+
+        self.default_dtool_config = dtool_config
 
         self.default_create_dataset_task_spec = {
             'name': self._dataset_name,
@@ -277,9 +501,6 @@ class DtoolTasksTest(unittest.TestCase):
             'stored_data': True,
         }
 
-        # for k, v in dtool_config.items():
-            # os.environ[k] = str(v)
-
     def tearDown(self):
         os.chdir(self._previous_working_directory)
         self._tmpdir.cleanup()
@@ -294,7 +515,7 @@ class DtoolTasksTest(unittest.TestCase):
         t = CreateDatasetTask(**self.default_create_dataset_task_spec)
         fw_action = t.run_task({})
         logger.debug("FWAction:")
-        _log_nested_dict(fw_action.as_dict())
+        _log_nested_dict(logger.debug, fw_action.as_dict())
         uri = fw_action.stored_data['uri']
 
         logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
@@ -303,7 +524,7 @@ class DtoolTasksTest(unittest.TestCase):
             uri=uri, **self.default_freeze_dataset_task_spec)
         fw_action = t.run_task({})
         logger.debug("FWAction:")
-        _log_nested_dict(fw_action.as_dict())
+        _log_nested_dict(logger.debug, fw_action.as_dict())
         uri = fw_action.stored_data['uri']
 
         with TemporaryOSEnviron(_read_json(self.files['dtool_config_path'])):
@@ -369,7 +590,7 @@ class DtoolTasksTest(unittest.TestCase):
         )
         fw_action = t.run_task({})
         logger.debug("FWAction:")
-        _log_nested_dict(fw_action.as_dict())
+        _log_nested_dict(logger.debug, fw_action.as_dict())
         uri = fw_action.stored_data['uri']
 
         logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
@@ -378,7 +599,7 @@ class DtoolTasksTest(unittest.TestCase):
             uri=uri, **self.default_freeze_dataset_task_spec)
         fw_action = t.run_task({})
         logger.debug("FWAction:")
-        _log_nested_dict(fw_action.as_dict())
+        _log_nested_dict(logger.debug, fw_action.as_dict())
         uri = fw_action.stored_data['uri']
 
         with TemporaryOSEnviron(_read_json(self.files['dtool_config_path'])):
@@ -437,7 +658,7 @@ class DtoolTasksTest(unittest.TestCase):
             }
         )
         logger.debug("FWAction:")
-        _log_nested_dict(fw_action.as_dict())
+        _log_nested_dict(logger.debug, fw_action.as_dict())
         uri = fw_action.stored_data['uri']
 
         logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
@@ -446,7 +667,7 @@ class DtoolTasksTest(unittest.TestCase):
             uri=uri, **self.default_freeze_dataset_task_spec)
         fw_action = t.run_task({})
         logger.debug("FWAction:")
-        _log_nested_dict(fw_action.as_dict())
+        _log_nested_dict(logger.debug, fw_action.as_dict())
         uri = fw_action.stored_data['uri']
 
         with TemporaryOSEnviron(_read_json(self.files['dtool_config_path'])):
@@ -512,7 +733,7 @@ class DtoolTasksTest(unittest.TestCase):
             }
         )
         logger.debug("FWAction:")
-        _log_nested_dict(fw_action.as_dict())
+        _log_nested_dict(logger.debug, fw_action.as_dict())
         uri = fw_action.stored_data['uri']
 
         logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
@@ -521,7 +742,7 @@ class DtoolTasksTest(unittest.TestCase):
             uri=uri, **self.default_freeze_dataset_task_spec)
         fw_action = t.run_task({})
         logger.debug("FWAction:")
-        _log_nested_dict(fw_action.as_dict())
+        _log_nested_dict(logger.debug, fw_action.as_dict())
         uri = fw_action.stored_data['uri']
 
         with TemporaryOSEnviron(_read_json(self.files['dtool_config_path'])):
@@ -582,7 +803,7 @@ class DtoolTasksTest(unittest.TestCase):
             }
         )
         logger.debug("FWAction:")
-        _log_nested_dict(fw_action.as_dict())
+        _log_nested_dict(logger.debug, fw_action.as_dict())
         uri = fw_action.stored_data['uri']
 
         logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
@@ -591,7 +812,7 @@ class DtoolTasksTest(unittest.TestCase):
             uri=uri, **self.default_freeze_dataset_task_spec)
         fw_action = t.run_task({})
         logger.debug("FWAction:")
-        _log_nested_dict(fw_action.as_dict())
+        _log_nested_dict(logger.debug, fw_action.as_dict())
         uri = fw_action.stored_data['uri']
 
         with TemporaryOSEnviron(_read_json(self.files['dtool_config_path'])):
@@ -606,7 +827,6 @@ class DtoolTasksTest(unittest.TestCase):
 
         return uri
 
-    #@unittest.skipUnless(DtoolTasksTest.smb_avail, "No smb server available.")
     def test_copy_dataset_task_to_smb_share(self):
         """Requires a guest-writable share named 'sambashare' available locally.
 
@@ -647,10 +867,10 @@ class DtoolTasksTest(unittest.TestCase):
 
         fw_action = t.run_task({})
         logger.debug("FWAction:")
-        _log_nested_dict(fw_action.as_dict())
+        _log_nested_dict(logger.debug, fw_action.as_dict())
         target_uri = fw_action.stored_data['uri']
 
-        with TemporaryOSEnviron(_read_json(self.files['dtool_config_path'])):
+        with TemporaryOSEnviron(self.default_dtool_config):
             ret = verify(True, target_uri)
         self.assertEqual(ret, True)
 
@@ -672,11 +892,11 @@ class DtoolTasksTest(unittest.TestCase):
         t_spec['source_dataset_uri'] = source_dataset_uri
 
         logger.debug("Instantiate another CreateDatasetTask with task spec:")
-        _log_nested_dict(t_spec)
+        _log_nested_dict(logger.debug, t_spec)
         t = CreateDatasetTask(**t_spec)
         fw_action = t.run_task({})
         logger.debug("FWAction:")
-        _log_nested_dict(fw_action.as_dict())
+        _log_nested_dict(logger.debug, fw_action.as_dict())
         derived_datset_uri = fw_action.stored_data['uri']
 
         logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
@@ -685,7 +905,7 @@ class DtoolTasksTest(unittest.TestCase):
             uri=derived_datset_uri, **self.default_freeze_dataset_task_spec)
         fw_action = t.run_task({})
         logger.debug("FWAction:")
-        _log_nested_dict(fw_action.as_dict())
+        _log_nested_dict(logger.debug, fw_action.as_dict())
         derived_dataset_uri = fw_action.stored_data['uri']
 
         with TemporaryOSEnviron(_read_json(self.files['dtool_config_path'])):
@@ -724,7 +944,7 @@ class DtoolTasksTest(unittest.TestCase):
             t = CreateDatasetTask(**t_spec)
             fw_action = t.run_task({})
             logger.debug("FWAction:")
-            _log_nested_dict(fw_action.as_dict())
+            _log_nested_dict(logger.debug, fw_action.as_dict())
             uri = fw_action.stored_data['uri']
             # source_dataset_uri.append(fw_action.stored_data['uri'])
 
@@ -734,7 +954,7 @@ class DtoolTasksTest(unittest.TestCase):
                 uri=uri, **self.default_freeze_dataset_task_spec)
             fw_action = t.run_task({})
             logger.debug("FWAction:")
-            _log_nested_dict(fw_action.as_dict())
+            _log_nested_dict(logger.debug, fw_action.as_dict())
             # uri = fw_action.stored_data['uri']
 
             with TemporaryOSEnviron(_read_json(self.files['dtool_config_path'])):
@@ -782,11 +1002,11 @@ class DtoolTasksTest(unittest.TestCase):
         t_spec['source_dataset_uri'] = [d['uri'] for d in source_dataset_ref]
 
         logger.debug("Instantiate another CreateDatasetTask with task spec:")
-        _log_nested_dict(t_spec)
+        _log_nested_dict(logger.debug, t_spec)
         t = CreateDatasetTask(**t_spec)
         fw_action = t.run_task({})
         logger.debug("FWAction:")
-        _log_nested_dict(fw_action.as_dict())
+        _log_nested_dict(logger.debug, fw_action.as_dict())
         derived_datset_uri = fw_action.stored_data['uri']
 
         logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
@@ -795,7 +1015,7 @@ class DtoolTasksTest(unittest.TestCase):
             uri=derived_datset_uri, **self.default_freeze_dataset_task_spec)
         fw_action = t.run_task({})
         logger.debug("FWAction:")
-        _log_nested_dict(fw_action.as_dict())
+        _log_nested_dict(logger.debug, fw_action.as_dict())
         derived_dataset_uri = fw_action.stored_data['uri']
 
         with TemporaryOSEnviron(_read_json(self.files['dtool_config_path'])):
@@ -844,7 +1064,7 @@ class DtoolTasksTest(unittest.TestCase):
             t = CreateDatasetTask(**t_spec)
             fw_action = t.run_task({})
             logger.debug("FWAction:")
-            _log_nested_dict(fw_action.as_dict())
+            _log_nested_dict(logger.debug, fw_action.as_dict())
             uri = fw_action.stored_data['uri']
 
             logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
@@ -853,7 +1073,7 @@ class DtoolTasksTest(unittest.TestCase):
                 uri=uri, **self.default_freeze_dataset_task_spec)
             fw_action = t.run_task({})
             logger.debug("FWAction:")
-            _log_nested_dict(fw_action.as_dict())
+            _log_nested_dict(logger.debug, fw_action.as_dict())
             # uri = fw_action.stored_data['uri']
 
             with TemporaryOSEnviron(_read_json(self.files['dtool_config_path'])):
@@ -901,11 +1121,11 @@ class DtoolTasksTest(unittest.TestCase):
         t_spec['source_dataset'] = source_dataset_ref
 
         logger.debug("Instantiate another CreateDatasetTask with task spec:")
-        _log_nested_dict(t_spec)
+        _log_nested_dict(logger.debug, t_spec)
         t = CreateDatasetTask(**t_spec)
         fw_action = t.run_task({})
         logger.debug("FWAction:")
-        _log_nested_dict(fw_action.as_dict())
+        _log_nested_dict(logger.debug, fw_action.as_dict())
         derived_datset_uri = fw_action.stored_data['uri']
 
         logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
@@ -914,7 +1134,7 @@ class DtoolTasksTest(unittest.TestCase):
             uri=derived_datset_uri, **self.default_freeze_dataset_task_spec)
         fw_action = t.run_task({})
         logger.debug("FWAction:")
-        _log_nested_dict(fw_action.as_dict())
+        _log_nested_dict(logger.debug, fw_action.as_dict())
         derived_dataset_uri = fw_action.stored_data['uri']
 
         with TemporaryOSEnviron(_read_json(self.files['dtool_config_path'])):
