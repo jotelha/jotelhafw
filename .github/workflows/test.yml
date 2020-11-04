@@ -47,7 +47,7 @@ jobs:
 
     - name: Install fireworks
       run: |
-        pip install fireworks==${{ matrix.fireworks-version }}
+        pip install git+https://github.com/jotelha/fireworks.git@v${{ matrix.fireworks-version }}-mod
 
     - name: Install this package
       run: |
