@@ -1,24 +1,5 @@
 # coding: utf-8
-"""Test dtool integration.
-
-To see verbose logging during testing, run something like
-
-    import logging
-    import unittest
-    from imteksimfw.fireworks.user_objects.firetasks.tests.test_dtool_tasks import DtoolTasksTest
-    logging.basicConfig(level=logging.DEBUG)
-    suite = unittest.TestSuite()
-    suite.addTest(DtoolTasksTest('test_create_dataset_task_run'))
-    suite.addTest(DtoolTasksTest('test_static_metadata_override'))
-    suite.addTest(DtoolTasksTest('test_dynamic_metadata_override'))
-    suite.addTest(DtoolTasksTest('test_static_and_dynamic_metadata_override'))
-    suite.addTest(DtoolTasksTest('test_copy_dataset_task_to_smb_share'))
-    suite.addTest(DtoolTasksTest('test_create_derived_dataset'))
-    suite.addTest(DtoolTasksTest('test_create_derived_dataset_from_multiple_source_dataset_uris'))
-    suite.addTest(DtoolTasksTest('test_create_derived_dataset_from_multiple_source_datasets'))
-    runner = unittest.TextTestRunner()
-    runner.run(suite)
-"""
+"""Test dtool integration."""
 __author__ = 'Johannes Laurin Hoermann'
 __copyright__ = 'Copyright 2020, IMTEK Simulation, University of Freiburg'
 __email__ = 'johannes.hoermann@imtek.uni-freiburg.de, johannes.laurin@gmail.com'
@@ -26,24 +7,14 @@ __date__ = 'Apr 27, 2020'
 
 import json
 import logging
-import unittest
-import urllib3
 import os
-import random
-import requests
-import socket
-import string
+import pytest
 import tempfile
-import time
-# import threading
 import ruamel.yaml as yaml
 
 # needs dtool cli for verification
-import subprocess  # TODO: replace cli sub-processes with custom verify calls
-
 
 import dtoolcore
-from fireworks.utilities.fw_serializers import ENCODING_PARAMS
 
 from imteksimfw.fireworks.utilities.environ import TemporaryOSEnviron
 from imteksimfw.fireworks.utilities.logging import _log_nested_dict
@@ -52,29 +23,7 @@ from imteksimfw.fireworks.user_objects.firetasks.dtool_tasks import (
 
 module_dir = os.path.abspath(os.path.dirname(__file__))
 
-PODMAN_HOST = 'localhost'
-PODMAN_RESTFUL_API_VERSION = '1.40.0'
-PODMAN_RESTFUL_API_REQUEST_TEMPLATE = "http://{host:}:{port:}/v{version:}"
-
-SAMBA_CONTAINER_IMAGE_NAME = 'docker.io/dperson/samba:latest'
-SAMBA_HOST ='localhost'
-
-def _random_string(
-    size=9,
-    prefix="test_",
-    chars=string.ascii_uppercase + string.ascii_lowercase + string.digits
-):
-    return prefix + ''.join(random.choice(chars) for _ in range(size))
-
-
-def _allocate_random_free_port(host='localhost'):
-    logger = logging.getLogger(__name__)
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.bind((host, 0))
-    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    _, local_port = s.getsockname()
-    logger.info("Allocated free local port: {:d}".format(local_port))
-    return local_port
+DATASET_NAME = 'dataset'
 
 
 def _read_json(file):
@@ -201,7 +150,7 @@ def verify(full, dataset_uri):
             i,
             generated_relpaths[i]
         )
-        logger.warn(message)
+        logger.warning(message)
         all_okay = False
 
     for i in manifest_identifiers.difference(generated_identifiers):
@@ -209,7 +158,7 @@ def verify(full, dataset_uri):
             i,
             dataset.item_properties(i)["relpath"]
         )
-        logger.warn(message)
+        logger.warning(message)
         all_okay = False
 
     for i in manifest_identifiers.intersection(generated_identifiers):
@@ -220,7 +169,7 @@ def verify(full, dataset_uri):
                 i,
                 dataset.item_properties(i)["relpath"]
             )
-            logger.warn(message)
+            logger.warning(message)
             all_okay = False
 
     if full:
@@ -233,452 +182,531 @@ def verify(full, dataset_uri):
                     i,
                     dataset.item_properties(i)["relpath"]
                 )
-                logger.warn(message)
+                logger.warning(message)
                 all_okay = False
 
     return all_okay
 
 
-class DtoolTasksTest(unittest.TestCase):
+@pytest.fixture
+def files():
+    return {
+        'dtool_readme_static_and_dynamic_metadata_test':
+            os.path.join(
+                module_dir,
+                "dtool_readme_static_and_dynamic_metadata_test.yml"),
+        'dtool_readme_dynamic_metadata_test':
+            os.path.join(
+                module_dir, "dtool_readme_dynamic_metadata_test.yml"),
+        'dtool_readme_static_metadata_test':
+            os.path.join(
+                module_dir, "dtool_readme_static_metadata_test.yml"),
+        'dtool_readme_template_path':
+            os.path.join(module_dir, "dtool_readme.yml"),
+        'dtool_config_path':
+            os.path.join(module_dir, "dtool.json"),
+    }
 
-    smb_avail = False
-    podman = None
-    podman_port = None
-    smb_port_139 = None
-    smb_port_445 = None
-    samba_container_name = None
-    samba_container_id = None
 
-    # TODO: place this podman wrapper outside of tests in some workflow
-    @classmethod
-    def setUpClass(cls):
-        # this set up accomplishes what others is achieved via command line,
-        # i.e. bring up podman system service first, via
-        #    podman system service --timeout 0
-        # then bring up smb server container , i.e. with
-        #    podman run -it -p 13900:139 -p 44500:445 -d dperson/samba \
-        #       -p -S -w WORKGROUP -s "sambashare;/share;yes;no;yes"
-        logger = logging.getLogger(__name__)
+@pytest.fixture
+def dtool_config(files):
+    """Provide default dtool config."""
+    logger = logging.getLogger(__name__)
+    # use environment variables instead of custom config file, see
+    # https://github.com/jic-dtool/dtoolcore/pull/17
+    # _original_environ = os.environ.copy()
 
-        cls.podman_port = _allocate_random_free_port(PODMAN_HOST)
-        base_uri = "tcp:{host:}:{port:}".format(host=PODMAN_HOST, port=cls.podman_port)
+    # inject configuration into environment:
+    dtool_config = _read_json(files['dtool_config_path'])
+    # dynamic_dtool_config_overrides = {
+    #     "DTOOL_SMB_SERVER_NAME_test-share": SAMBA_HOST,
+    #     "DTOOL_SMB_SERVER_PORT_test-share": smb_port_445,
+    # }
+    # dtool_config.update(dynamic_dtool_config_overrides)
 
-        cmd = ['podman', 'system', 'service', base_uri,
-               '--log-level', 'debug', '--timeout', '0'],
+    logger.debug("dtool config overrides:")
+    _log_nested_dict(logger.debug, dtool_config)
 
-        logger.debug("Launching '{}'".format(' '.join(*cmd)))
-        cls.podman = subprocess.Popen(
-            *cmd,
-            stdin=None,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            env=os.environ, **ENCODING_PARAMS)
+    return dtool_config
 
-        # request = "http://localhost:8080/v1.40.0/libpod/info")
-        request_template = PODMAN_RESTFUL_API_REQUEST_TEMPLATE.format(
-            host=PODMAN_HOST, port=cls.podman_port,
-            version=PODMAN_RESTFUL_API_VERSION) + '/{}'
-        request = request_template.format('libpod/info')
-        while(True):
-            try:
-                response = requests.get(request)
-            except requests.exceptions.ConnectionError as exc:
-                logger.warning("Retrying after connection timeout: '{}'".format(exc))
-                time.sleep(1)
-            else:
-                break
 
-        if response.status_code != 200:
-            logger.warning(
-                "No connection via RESTful API to podman '{}: {}'".format(
-                    response.status_code, response.text))
-            return
-        info = json.loads(response.text)
-        logger.info("Podman API info:")
-        _log_nested_dict(logger.info, info)
+@pytest.fixture
+def default_create_dataset_task_spec(dtool_config, files):
+    return {
+        'name': DATASET_NAME,
+        'dtool_readme_template_path': files["dtool_readme_template_path"],
+        'dtool_config': dtool_config,
+        'stored_data': True,
+    }
 
-        logger.info("Check image '{}' existance.".format(SAMBA_CONTAINER_IMAGE_NAME))
-        uri_suffix = 'libpod/images/{}/exists'.format(SAMBA_CONTAINER_IMAGE_NAME)
-        request = request_template.format(uri_suffix)
-        response = requests.get(request)
-        if response.status_code == 404:
-            logger.info("Image '{}' does not exist, creation not implemented.".format(SAMBA_CONTAINER_IMAGE_NAME))
-            return
-            # uri_suffix = 'libpod/images/pull'
-            # request = request_template.format(uri_suffix)
-            # response = requests.post(request, )
-        elif response.status_code != 204:
-            logger.warn("Unexpected error at image existance check {}: '{}'.".format(
-                        response.status_code, response.text))
-            return
 
-        cls.smb_port_139 = _allocate_random_free_port(SAMBA_HOST)
-        cls.smb_port_445 = _allocate_random_free_port(SAMBA_HOST)
-        cls.samba_container_name = _random_string()
-        request = request_template.format('libpod/containers/create')
-        request_params = {
-            'image': SAMBA_CONTAINER_IMAGE_NAME,
-            'name': cls.samba_container_name,
-            'portmappings': [
-                {
-                    'container_port': 139,
-                    'host_port': cls.smb_port_139,
-                },
-                {
-                    'container_port': 445,
-                    'host_port': cls.smb_port_445,
-                }
-            ],
-            'command': ["-p", "-S", "-w", "WORKGROUP", "-s", "sambashare;/share;yes;no;yes"]
-            # refer to https://hub.docker.com/r/dperson/samba
-            # -s "<name;/path>[;browse;readonly;guest;users;admins;writelist;comment]"
-            #             Configure a share
-            #             required arg: "<name>;</path>"
-            #             <name> is how it's called for clients
-            #             <path> path to share
-            #             NOTE: for the default values, just leave blank
-            #             [browsable] default:'yes' or 'no'
-            #             [readonly] default:'yes' or 'no'
-            #             [guest] allowed default:'yes' or 'no'
-            #             NOTE: for user lists below, usernames are separated by ','
-            #             [users] allowed default:'all' or list of allowed users
-            #             [admins] allowed default:'none' or list of admin users
-            #             [writelist] list of users that can write to a RO share
-            #             [comment] description of share
+@pytest.fixture
+def default_freeze_dataset_task_spec(dtool_config):
+    return {
+        'dtool_config': dtool_config,
+        'stored_data': True,
+    }
+
+
+@pytest.fixture
+def default_copy_dataset_task_spec(dtool_config):
+    return {
+        'source': DATASET_NAME,
+        'target': 'smb://test-share',
+        'dtool_config': dtool_config,
+        'stored_data': True,
+    }
+
+
+@pytest.fixture
+def tempdir(request):
+    """Provide clean temporary directory."""
+    tmpdir = tempfile.TemporaryDirectory()
+    previous_working_directory = os.getcwd()
+    os.chdir(tmpdir.name)
+
+    def finalizer():
+        os.chdir(previous_working_directory)
+        tmpdir.cleanup()
+
+    request.addfinalizer(finalizer)
+    return
+
+
+def _create_dataset(tempdir, files, dtool_config,
+                    default_create_dataset_task_spec,
+                    default_freeze_dataset_task_spec):
+    """Will create dataset with default parameters within current working directory."""
+    logger = logging.getLogger(__name__)
+
+    logger.debug("Instantiate CreateDatasetTask with '{}'".format(
+        default_create_dataset_task_spec))
+    t = CreateDatasetTask(**default_create_dataset_task_spec)
+    fw_action = t.run_task({})
+    logger.debug("FWAction:")
+    _log_nested_dict(logger.debug, fw_action.as_dict())
+    uri = fw_action.stored_data['uri']
+
+    logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
+        {'uri': uri, **default_freeze_dataset_task_spec}))
+    t = FreezeDatasetTask(
+        uri=uri, **default_freeze_dataset_task_spec)
+    fw_action = t.run_task({})
+    logger.debug("FWAction:")
+    _log_nested_dict(logger.debug, fw_action.as_dict())
+    uri = fw_action.stored_data['uri']
+
+    with TemporaryOSEnviron(_read_json(files['dtool_config_path'])):
+        ret = verify(True, uri)
+
+    assert ret
+
+    # compare metadata template and generated README.yml
+    # expect filled in values like this:
+    #    project: DtoolTasksTest
+    #    description: Tests on Fireworks tasks for handling dtool datasets.
+    #    owners:
+    #      - name: Dtool Tasks Test
+    #        email: dtool@imteksimfw
+    #        username: jotelha
+    #    creation_date: 2020-04-27
+    #    expiration_date: 2020-04-27
+    #    metadata:
+    #      mode: trial
+    #      step: override this
+
+    # legend:
+    # - True compares key and value
+    # - False confirms key existance but does not compare value
+    # - str looks up value from config gile
+    to_compare = {
+        'project': True,
+        'description': True,
+        'owners': [{
+            'name': 'DTOOL_USER_FULL_NAME',
+            'email': 'DTOOL_USER_EMAIL',
+            'username': False,
+        }],
+        'creation_date': False,
+        'expiration_date': False,
+        'metadata': {
+            'mode': True,
+            'step': True,
         }
-        logger.info("Create container '{}': '{}'..".format(request, request_params))
-        response = requests.post(request, json=request_params)
-        if response.status_code == 201:
-            cls.samba_container_id = response.json()['Id']
-            logger.info("Created container '{}': '{}'.".format(
-                        cls.samba_container_id, cls.samba_container_name))
-        else:
-            logger.warn("Unexpected error at container creation {}: '{}'.".format(
-                        response.status_code, response.text))
-            return
+    }
 
-        uri_suffix = 'libpod/containers/{}/start'.format(cls.samba_container_id)
-        request = request_template.format(uri_suffix)
-        logger.info("Start container '{}'".format(request))
-        response = requests.post(request)
-        if response.status_code == 204:
-            logger.info("Container '{}': '{}' started successfully.".format(
-                cls.samba_container_id, cls.samba_container_name))
-        elif response.status_code == 304:
-            logger.warning("Container '{}': '{}' already running.".format(
-                cls.samba_container_id, cls.samba_container_name))
-            # stop?
-        else:
-            logger.warn("Unexpected error at container launch {}: '{}'.".format(
-                        response.status_code, response.text))
-            return
+    compares = _compare_frozen_metadata_against_template(
+        os.path.join(DATASET_NAME, "README.yml"),
+        files['dtool_readme_template_path'],
+        files['dtool_config_path'],
+        to_compare
+    )
+    assert compares
 
-        cls.smb_avail = True
+    return uri
 
-    @classmethod
-    def tearDownClass(cls):
-        logger = logging.getLogger(__name__)
 
-        request_template = PODMAN_RESTFUL_API_REQUEST_TEMPLATE.format(
-            host=PODMAN_HOST, port=cls.podman_port,
-            version=PODMAN_RESTFUL_API_VERSION) + '/{}'
+#
+# basic dtool tasks tests
+#
+def test_create_dataset_task_run(tempdir, files, dtool_config,
+                                 default_create_dataset_task_spec,
+                                 default_freeze_dataset_task_spec):
+    """Will create dataset with default parameters within current working directory."""
+    _create_dataset(tempdir, files, dtool_config,
+                    default_create_dataset_task_spec,
+                    default_freeze_dataset_task_spec)
 
-        if cls.samba_container_id:
-            # stop container
-            uri_suffix = "libpod/containers/{name:}/stop".format(name=cls.samba_container_id)
-            request = request_template.format(uri_suffix)
-            try:
-                response = requests.post(request)
-            except urllib3.exceptions.MaxRetryError as exc:
-                logger.warning("Unexpected exception '{}' when sending conatiner stop request.".format(exc))
-            else:
-                if response.status_code == 204:
-                    logger.info("Container '{}': '{}' stopped successfully.".format(
-                        cls.samba_container_id, cls.samba_container_name))
-                elif response.status_code == 304:
-                    logger.warning("Container '{}': '{}' not running.".format(
-                        cls.samba_container_id, cls.samba_container_name))
-                else:
-                    logger.error(
-                        "Unexpected error when stopping container '{}': '{}' - {}.".format(
-                            cls.samba_container_id, cls.samba_container_name, response.text))
 
-            # remove container
-            uri_suffix = "libpod/containers/{name:}".format(name=cls.samba_container_id)
-            try:
-                request = request_template.format(uri_suffix)
-            except urllib3.exceptions.MaxRetryError as exc:
-                logger.warning("Unexpected exception '{}' when sending conatiner stop request.".format(exc))
-            else:
-                response = requests.delete(request, params={'v': True})  # v: delete attached volumes
-                if response.status_code == 204:
-                    logger.info("Container '{}': '{}' removed successfully.".format(
-                        cls.samba_container_id, cls.samba_container_name))
-                else:
-                    logger.error(
-                        "Unexpected error when stopping container '{}': '{}' - {}.".format(
-                            cls.samba_container_id, cls.samba_container_name, response.text))
+def test_static_metadata_override(tempdir, files, dtool_config,
+                                  default_create_dataset_task_spec,
+                                  default_freeze_dataset_task_spec):
+    """Will create dataset with static metadata within current working directory."""
+    logger = logging.getLogger(__name__)
 
-            cls.samba_container_id = None
-
-        if cls.podman:  # above cls.samba_container_id implicates cls.podman
-            ret = cls.podman.poll()
-            if isinstance(ret, int):
-                logger.warning("podman system service returned with {}.".format(ret))
-            else:  # None
-                logger.info("Stopping podman system service....")
-                cls.podman.terminate()
-
-            outs, errs = cls.podman.communicate(timeout=3)
-
-            logger.debug("podman system service stdout")
-            for line in outs.splitlines():
-                logger.debug(line)
-
-            logger.debug("podman system service stderr")
-            for line in errs.splitlines():
-                logger.debug(line)
-
-            cls.podman = None
-
-    def setUp(self):
-        logger = logging.getLogger(__name__)
-
-        self.files = {
-            'dtool_readme_static_and_dynamic_metadata_test':
-                os.path.join(
-                    module_dir,
-                    "dtool_readme_static_and_dynamic_metadata_test.yml"),
-            'dtool_readme_dynamic_metadata_test':
-                os.path.join(
-                    module_dir, "dtool_readme_dynamic_metadata_test.yml"),
-            'dtool_readme_static_metadata_test':
-                os.path.join(
-                    module_dir, "dtool_readme_static_metadata_test.yml"),
-            'dtool_readme_template_path':
-                os.path.join(module_dir, "dtool_readme.yml"),
-            'dtool_config_path':
-                os.path.join(module_dir, "dtool.json"),
-        }
-
-        self._tmpdir = tempfile.TemporaryDirectory()
-        self._previous_working_directory = os.getcwd()
-        os.chdir(self._tmpdir.name)
-
-        self._dataset_name = 'dataset'
-
-        # use environment variables instead of custom config file, see
-        # https://github.com/jic-dtool/dtoolcore/pull/17
-        # self._original_environ = os.environ.copy()
-
-        # inject configuration into environment:
-        dtool_config = _read_json(self.files['dtool_config_path'])
-        dynamic_dtool_config_overrides = {
-            "DTOOL_SMB_SERVER_NAME_test-share": SAMBA_HOST,
-            "DTOOL_SMB_SERVER_PORT_test-share": self.smb_port_445,
-        }
-        dtool_config.update(dynamic_dtool_config_overrides)
-
-        logger.debug("dtool config overrides:")
-        _log_nested_dict(logger.debug, dtool_config)
-
-        self.default_dtool_config = dtool_config
-
-        self.default_create_dataset_task_spec = {
-            'name': self._dataset_name,
-            'dtool_readme_template_path': self.files["dtool_readme_template_path"],
-            'dtool_config': dtool_config,
-            'stored_data': True,
-        }
-
-        self.default_freeze_dataset_task_spec = {
-            'dtool_config': dtool_config,
-            'stored_data': True,
-        }
-
-        self.default_copy_dataset_task_spec = {
-            'source': self._dataset_name,
-            'target': 'smb://test-share',
-            'dtool_config': dtool_config,
-            'stored_data': True,
-        }
-
-    def tearDown(self):
-        os.chdir(self._previous_working_directory)
-        self._tmpdir.cleanup()
-        # os.environ = self._original_environ
-
-    def test_create_dataset_task_run(self):
-        """Will create dataset with default parameters within current working directory."""
-        logger = logging.getLogger(__name__)
-
-        logger.debug("Instantiate CreateDatasetTask with '{}'".format(
-            self.default_create_dataset_task_spec))
-        t = CreateDatasetTask(**self.default_create_dataset_task_spec)
-        fw_action = t.run_task({})
-        logger.debug("FWAction:")
-        _log_nested_dict(logger.debug, fw_action.as_dict())
-        uri = fw_action.stored_data['uri']
-
-        logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
-            {'uri': uri, **self.default_freeze_dataset_task_spec}))
-        t = FreezeDatasetTask(
-            uri=uri, **self.default_freeze_dataset_task_spec)
-        fw_action = t.run_task({})
-        logger.debug("FWAction:")
-        _log_nested_dict(logger.debug, fw_action.as_dict())
-        uri = fw_action.stored_data['uri']
-
-        with TemporaryOSEnviron(_read_json(self.files['dtool_config_path'])):
-            ret = verify(True, uri)
-
-        self.assertEqual(ret, True)
-
-        # compare metadata template and generated README.yml
-        # expect filled in values like this:
-        #    project: DtoolTasksTest
-        #    description: Tests on Fireworks tasks for handling dtool datasets.
-        #    owners:
-        #      - name: Dtool Tasks Test
-        #        email: dtool@imteksimfw
-        #        username: jotelha
-        #    creation_date: 2020-04-27
-        #    expiration_date: 2020-04-27
-        #    metadata:
-        #      mode: trial
-        #      step: override this
-
-        # legend:
-        # - True compares key and value
-        # - False confirms key existance but does not compare value
-        # - str looks up value from config gile
-        to_compare = {
-            'project': True,
-            'description': True,
-            'owners': [{
-                'name': 'DTOOL_USER_FULL_NAME',
-                'email': 'DTOOL_USER_EMAIL',
-                'username': False,
-            }],
-            'creation_date': False,
-            'expiration_date': False,
+    t = CreateDatasetTask(
+        **default_create_dataset_task_spec,
+        metadata={
             'metadata': {
-                'mode': True,
-                'step': True,
+                'step': 'static metadata test'
             }
         }
+    )
+    fw_action = t.run_task({})
+    logger.debug("FWAction:")
+    _log_nested_dict(logger.debug, fw_action.as_dict())
+    uri = fw_action.stored_data['uri']
 
-        compares = _compare_frozen_metadata_against_template(
-            os.path.join(self._dataset_name, "README.yml"),
-            self.files['dtool_readme_template_path'],
-            self.files['dtool_config_path'],
-            to_compare
-        )
-        self.assertEqual(compares, True)
+    logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
+        {'uri': uri, **default_freeze_dataset_task_spec}))
+    t = FreezeDatasetTask(
+        uri=uri, **default_freeze_dataset_task_spec)
+    fw_action = t.run_task({})
+    logger.debug("FWAction:")
+    _log_nested_dict(logger.debug, fw_action.as_dict())
+    uri = fw_action.stored_data['uri']
 
-        return uri
+    with TemporaryOSEnviron(_read_json(files['dtool_config_path'])):
+        ret = verify(True, uri)
+    assert ret
 
-    def test_static_metadata_override(self):
-        """Will create dataset with static metadata within current working directory."""
-        logger = logging.getLogger(__name__)
-
-        t = CreateDatasetTask(
-            **self.default_create_dataset_task_spec,
-            metadata={
-                'metadata': {
-                    'step': 'static metadata test'
-                }
-            }
-        )
-        fw_action = t.run_task({})
-        logger.debug("FWAction:")
-        _log_nested_dict(logger.debug, fw_action.as_dict())
-        uri = fw_action.stored_data['uri']
-
-        logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
-            {'uri': uri, **self.default_freeze_dataset_task_spec}))
-        t = FreezeDatasetTask(
-            uri=uri, **self.default_freeze_dataset_task_spec)
-        fw_action = t.run_task({})
-        logger.debug("FWAction:")
-        _log_nested_dict(logger.debug, fw_action.as_dict())
-        uri = fw_action.stored_data['uri']
-
-        with TemporaryOSEnviron(_read_json(self.files['dtool_config_path'])):
-            ret = verify(True, uri)
-        self.assertEqual(ret, True)
-
-        # legend:
-        # - True compares key and value
-        # - False confirms key existance but does not compare value
-        # - str looks up value from config gile
-        to_compare = {
-            'project': True,
-            'description': True,
-            'owners': [{
-                'name': 'DTOOL_USER_FULL_NAME',
-                'email': 'DTOOL_USER_EMAIL',
-                'username': False,
-            }],
-            'creation_date': False,
-            'expiration_date': False,
-            'metadata': {
-                'mode': True,
-                'step': True,
-            }
+    # legend:
+    # - True compares key and value
+    # - False confirms key existance but does not compare value
+    # - str looks up value from config gile
+    to_compare = {
+        'project': True,
+        'description': True,
+        'owners': [{
+            'name': 'DTOOL_USER_FULL_NAME',
+            'email': 'DTOOL_USER_EMAIL',
+            'username': False,
+        }],
+        'creation_date': False,
+        'expiration_date': False,
+        'metadata': {
+            'mode': True,
+            'step': True,
         }
+    }
 
-        compares = _compare_frozen_metadata_against_template(
-            os.path.join(self._dataset_name, "README.yml"),
-            self.files['dtool_readme_static_metadata_test'],
-            self.files['dtool_config_path'],
-            to_compare
-        )
-        self.assertEqual(compares, True)
+    compares = _compare_frozen_metadata_against_template(
+        os.path.join(DATASET_NAME, "README.yml"),
+        files['dtool_readme_static_metadata_test'],
+        files['dtool_config_path'],
+        to_compare
+    )
+    assert compares
 
-        return uri
+    return uri
 
-    def test_dynamic_metadata_override(self):
-        """Will create dataset with static and dynamic metadata within current working directory."""
-        logger = logging.getLogger(__name__)
 
-        t = CreateDatasetTask(
-            **self.default_create_dataset_task_spec,
-            metadata_key='deeply->deeply->nested',
-        )
-        fw_action = t.run_task(  # insert some fw_spec into metadata
-            {
+def test_dynamic_metadata_override(tempdir, files, dtool_config,
+                                   default_create_dataset_task_spec,
+                                   default_freeze_dataset_task_spec):
+    """Will create dataset with static and dynamic metadata within current working directory."""
+    logger = logging.getLogger(__name__)
+
+    t = CreateDatasetTask(
+        **default_create_dataset_task_spec,
+        metadata_key='deeply->deeply->nested',
+    )
+    fw_action = t.run_task(  # insert some fw_spec into metadata
+        {
+            'deeply': {
                 'deeply': {
-                    'deeply': {
-                        'nested': {
-                            'metadata': {
-                                'step': 'dynamic metadata test'
-                            }
+                    'nested': {
+                        'metadata': {
+                            'step': 'dynamic metadata test'
                         }
                     }
                 }
             }
-        )
-        logger.debug("FWAction:")
-        _log_nested_dict(logger.debug, fw_action.as_dict())
-        uri = fw_action.stored_data['uri']
+        }
+    )
+    logger.debug("FWAction:")
+    _log_nested_dict(logger.debug, fw_action.as_dict())
+    uri = fw_action.stored_data['uri']
 
-        logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
-            {'uri': uri, **self.default_freeze_dataset_task_spec}))
-        t = FreezeDatasetTask(
-            uri=uri, **self.default_freeze_dataset_task_spec)
+    logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
+        {'uri': uri, **default_freeze_dataset_task_spec}))
+    t = FreezeDatasetTask(
+        uri=uri, **default_freeze_dataset_task_spec)
+    fw_action = t.run_task({})
+    logger.debug("FWAction:")
+    _log_nested_dict(logger.debug, fw_action.as_dict())
+    uri = fw_action.stored_data['uri']
+
+    with TemporaryOSEnviron(_read_json(files['dtool_config_path'])):
+        ret = verify(True, uri)
+    assert ret
+
+    # legend:
+    # - True compares key and value
+    # - False confirms key existance but does not compare value
+    # - str looks up value from config gile
+    to_compare = {
+        'project': True,
+        'description': True,
+        'owners': [{
+            'name': 'DTOOL_USER_FULL_NAME',
+            'email': 'DTOOL_USER_EMAIL',
+            'username': False,
+        }],
+        'creation_date': False,
+        'expiration_date': False,
+        'metadata': {
+            'mode': True,
+            'step': True,
+        }
+    }
+
+    compares = _compare_frozen_metadata_against_template(
+        os.path.join(DATASET_NAME, "README.yml"),
+        files['dtool_readme_dynamic_metadata_test'],
+        files['dtool_config_path'],
+        to_compare
+    )
+    assert compares
+
+    return uri
+
+
+def test_static_and_dynamic_metadata_override(tempdir, files, dtool_config,
+                                              default_create_dataset_task_spec,
+                                              default_freeze_dataset_task_spec):
+    """Will create dataset with static metadata within current working directory."""
+    logger = logging.getLogger(__name__)
+
+    t = CreateDatasetTask(
+        **default_create_dataset_task_spec,
+        metadata={
+            'metadata': {  # insert some task-level specs into metadata
+                'step': 'static and dynamic metadata test',  #
+                'static_field': 'set by task-level static metadata field'
+            }
+        },
+        metadata_key='deeply->deeply->nested',
+    )
+    fw_action = t.run_task(  # insert some fw_spec into metadata
+        {
+            'deeply': {
+                'deeply': {
+                    'nested': {
+                        'metadata': {
+                            'step': 'static field above overrides me',
+                            'dynamic_field': 'set by Fireworks fw_spec-level dynamic metadata field'
+                        }
+                    }
+                }
+            }
+        }
+    )
+    logger.debug("FWAction:")
+    _log_nested_dict(logger.debug, fw_action.as_dict())
+    uri = fw_action.stored_data['uri']
+
+    logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
+        {'uri': uri, **default_freeze_dataset_task_spec}))
+    t = FreezeDatasetTask(
+        uri=uri, **default_freeze_dataset_task_spec)
+    fw_action = t.run_task({})
+    logger.debug("FWAction:")
+    _log_nested_dict(logger.debug, fw_action.as_dict())
+    uri = fw_action.stored_data['uri']
+
+    with TemporaryOSEnviron(_read_json(files['dtool_config_path'])):
+        ret = verify(True, uri)
+    assert ret
+
+    # legend:
+    # - True compares key and value
+    # - False confirms key existance but does not compare value
+    # - str looks up value from config gile
+    to_compare = {
+        'project': True,
+        'description': True,
+        'owners': [{
+            'name': 'DTOOL_USER_FULL_NAME',
+            'email': 'DTOOL_USER_EMAIL',
+            'username': False,
+        }],
+        'creation_date': False,
+        'expiration_date': False,
+        'metadata': {
+            'mode': True,
+            'step': True,
+            'static_field': True,
+            'dynamic_field': True,
+        }
+    }
+
+    compares = _compare_frozen_metadata_against_template(
+        os.path.join(DATASET_NAME, "README.yml"),
+        files['dtool_readme_static_and_dynamic_metadata_test'],
+        files['dtool_config_path'],
+        to_compare
+    )
+    assert compares
+
+    return uri
+
+
+def test_params_from_fw_spec(tempdir, files, dtool_config,
+                             default_create_dataset_task_spec,
+                             default_freeze_dataset_task_spec):
+    """Will create dataset with some task parameters pulled from fw_spec."""
+    logger = logging.getLogger(__name__)
+
+    t_spec = {
+        **default_create_dataset_task_spec,
+        'creator_username': {'key': 'deeply->deeply->nested->username'}
+    }
+    t = CreateDatasetTask(**t_spec)
+
+    fw_action = t.run_task(
+        {
+            'deeply': {
+                'deeply': {
+                    'nested': {
+                        'username': 'unittest'
+                    }
+                }
+            }
+        }
+    )
+    logger.debug("FWAction:")
+    _log_nested_dict(logger.debug, fw_action.as_dict())
+    uri = fw_action.stored_data['uri']
+
+    logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
+        {'uri': uri, **default_freeze_dataset_task_spec}))
+    t = FreezeDatasetTask(
+        uri=uri, **default_freeze_dataset_task_spec)
+    fw_action = t.run_task({})
+    logger.debug("FWAction:")
+    _log_nested_dict(logger.debug, fw_action.as_dict())
+    uri = fw_action.stored_data['uri']
+
+    with TemporaryOSEnviron(_read_json(files['dtool_config_path'])):
+        ret = verify(True, uri)
+    assert ret
+
+    # check creator_username
+    dataset = dtoolcore.DataSet.from_uri(uri)
+    assert dataset._admin_metadata["creator_username"] == 'unittest'
+
+    return uri
+
+
+#
+# derived datasets tests
+#
+def test_create_derived_dataset(tempdir, files, dtool_config,
+                                default_create_dataset_task_spec,
+                                default_freeze_dataset_task_spec):
+    """Create two datasets, one derived from the other."""
+    logger = logging.getLogger(__name__)
+
+    # create a dummy dataset to derive from
+    source_dataset_uri = _create_dataset(tempdir, files, dtool_config,
+                                         default_create_dataset_task_spec,
+                                         default_freeze_dataset_task_spec)
+    logger.debug("Derive from source dataset with URI '{}'.".format(
+        source_dataset_uri))
+
+    t_spec = default_create_dataset_task_spec.copy()
+    t_spec['name'] = 'derived_datset'
+    t_spec['source_dataset_uri'] = source_dataset_uri
+
+    logger.debug("Instantiate another CreateDatasetTask with task spec:")
+    _log_nested_dict(logger.debug, t_spec)
+    t = CreateDatasetTask(**t_spec)
+    fw_action = t.run_task({})
+    logger.debug("FWAction:")
+    _log_nested_dict(logger.debug, fw_action.as_dict())
+    derived_datset_uri = fw_action.stored_data['uri']
+
+    logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
+        {'uri': derived_datset_uri, **default_freeze_dataset_task_spec}))
+    t = FreezeDatasetTask(
+        uri=derived_datset_uri, **default_freeze_dataset_task_spec)
+    fw_action = t.run_task({})
+    logger.debug("FWAction:")
+    _log_nested_dict(logger.debug, fw_action.as_dict())
+    derived_dataset_uri = fw_action.stored_data['uri']
+
+    with TemporaryOSEnviron(_read_json(files['dtool_config_path'])):
+        ret = verify(True, derived_datset_uri)
+    assert ret
+
+    # check that fields for derived datasets agree
+    source_dataset = dtoolcore.DataSet.from_uri(source_dataset_uri)
+    derived_dataset = dtoolcore.DataSet.from_uri(derived_dataset_uri)
+    assert source_dataset.name == derived_dataset.get_annotation("source_dataset_name")
+    assert source_dataset.uri == derived_dataset.get_annotation("source_dataset_uri")
+    assert source_dataset.uuid == derived_dataset.get_annotation("source_dataset_uuid")
+
+
+def test_create_derived_dataset_from_multiple_source_dataset_uris(tempdir, files, dtool_config,
+                                                                  default_create_dataset_task_spec,
+                                                                  default_freeze_dataset_task_spec):
+    """Create three datasets, one derived from the other two."""
+    logger = logging.getLogger(__name__)
+
+    # create two dummy datasets to derive from
+
+    logger.debug("Instantiate CreateDatasetTask with '{}'".format(
+        default_create_dataset_task_spec))
+
+    dummy_names = ['dataset', 'another_dataset']
+
+    # for testing, add a non-existant source uri in the beginning
+    source_dataset_ref = [{'uri': 'file://some/none-existant/dataset'}]
+    for name in dummy_names:
+        t_spec = default_create_dataset_task_spec.copy()
+        t_spec['name'] = name
+        t = CreateDatasetTask(**t_spec)
         fw_action = t.run_task({})
         logger.debug("FWAction:")
         _log_nested_dict(logger.debug, fw_action.as_dict())
         uri = fw_action.stored_data['uri']
+        # source_dataset_uri.append(fw_action.stored_data['uri'])
 
-        with TemporaryOSEnviron(_read_json(self.files['dtool_config_path'])):
+        logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
+            {'uri': uri, **default_freeze_dataset_task_spec}))
+        t = FreezeDatasetTask(
+            uri=uri, **default_freeze_dataset_task_spec)
+        fw_action = t.run_task({})
+        logger.debug("FWAction:")
+        _log_nested_dict(logger.debug, fw_action.as_dict())
+        # uri = fw_action.stored_data['uri']
+
+        with TemporaryOSEnviron(_read_json(files['dtool_config_path'])):
             ret = verify(True, uri)
-        self.assertEqual(ret, True)
 
-        # legend:
-        # - True compares key and value
-        # - False confirms key existance but does not compare value
-        # - str looks up value from config gile
+        assert ret
+
         to_compare = {
             'project': True,
             'description': True,
@@ -696,64 +724,105 @@ class DtoolTasksTest(unittest.TestCase):
         }
 
         compares = _compare_frozen_metadata_against_template(
-            os.path.join(self._dataset_name, "README.yml"),
-            self.files['dtool_readme_dynamic_metadata_test'],
-            self.files['dtool_config_path'],
+            os.path.join(DATASET_NAME, "README.yml"),
+            files['dtool_readme_template_path'],
+            files['dtool_config_path'],
             to_compare
         )
-        self.assertEqual(compares, True)
-
-        return uri
-
-    def test_static_and_dynamic_metadata_override(self):
-        """Will create dataset with static metadata within current working directory."""
-        logger = logging.getLogger(__name__)
-
-        t = CreateDatasetTask(
-            **self.default_create_dataset_task_spec,
-            metadata={
-                'metadata': {  # insert some task-level specs into metadata
-                    'step': 'static and dynamic metadata test',  #
-                    'static_field': 'set by task-level static metadata field'
-                }
-            },
-            metadata_key='deeply->deeply->nested',
-        )
-        fw_action = t.run_task(  # insert some fw_spec into metadata
+        assert compares
+        source_dataset_ref.append(
             {
-                'deeply': {
-                    'deeply': {
-                        'nested': {
-                            'metadata': {
-                                'step': 'static field above overrides me',
-                                'dynamic_field': 'set by Fireworks fw_spec-level dynamic metadata field'
-                            }
-                        }
-                    }
-                }
+                'name': fw_action.stored_data['name'],
+                'uri': fw_action.stored_data['uri'],
+                'uuid': fw_action.stored_data['uuid'],
+
             }
         )
-        logger.debug("FWAction:")
-        _log_nested_dict(logger.debug, fw_action.as_dict())
-        uri = fw_action.stored_data['uri']
 
-        logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
-            {'uri': uri, **self.default_freeze_dataset_task_spec}))
-        t = FreezeDatasetTask(
-            uri=uri, **self.default_freeze_dataset_task_spec)
+    logger.debug("Derive from source datasets with URIs '{}'.".format(
+        source_dataset_ref))
+
+    t_spec = default_create_dataset_task_spec.copy()
+    t_spec['name'] = 'derived_datset'
+    t_spec['source_dataset_uri'] = [d['uri'] for d in source_dataset_ref]
+
+    logger.debug("Instantiate another CreateDatasetTask with task spec:")
+    _log_nested_dict(logger.debug, t_spec)
+    t = CreateDatasetTask(**t_spec)
+    fw_action = t.run_task({})
+    logger.debug("FWAction:")
+    _log_nested_dict(logger.debug, fw_action.as_dict())
+    derived_datset_uri = fw_action.stored_data['uri']
+
+    logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
+        {'uri': derived_datset_uri, **default_freeze_dataset_task_spec}))
+    t = FreezeDatasetTask(
+        uri=derived_datset_uri, **default_freeze_dataset_task_spec)
+    fw_action = t.run_task({})
+    logger.debug("FWAction:")
+    _log_nested_dict(logger.debug, fw_action.as_dict())
+    derived_dataset_uri = fw_action.stored_data['uri']
+
+    with TemporaryOSEnviron(_read_json(files['dtool_config_path'])):
+        ret = verify(True, derived_datset_uri)
+    assert ret
+
+    # check that fields for derived datasets agree
+    # if handled corrctly, then the second uri in the list must have
+    # been picked as primary source
+    source_dataset = dtoolcore.DataSet.from_uri(source_dataset_ref[1]['uri'])
+    derived_dataset = dtoolcore.DataSet.from_uri(derived_dataset_uri)
+    assert source_dataset.name == derived_dataset.get_annotation("source_dataset_name")
+    assert source_dataset.uri == derived_dataset.get_annotation("source_dataset_uri")
+    assert source_dataset.uuid == derived_dataset.get_annotation("source_dataset_uuid")
+
+    # make sure dependeny annotations are set correctly
+    source_datasets = derived_dataset.get_annotation("derived_from")
+    for ref, cur in zip(source_dataset_ref, source_datasets):
+        assert len(ref) == len(cur)
+        for k, l in zip(sorted(ref), sorted(cur)):
+            assert k == l
+            assert ref[k] == cur[l]
+
+
+def test_create_derived_dataset_from_multiple_source_datasets(tempdir, files, dtool_config,
+                                                              default_create_dataset_task_spec,
+                                                              default_freeze_dataset_task_spec):
+    """Create three datasets, one derived from the other two."""
+    logger = logging.getLogger(__name__)
+
+    # create two dummy datasets to derive from
+
+    logger.debug("Instantiate CreateDatasetTask with '{}'".format(
+        default_create_dataset_task_spec))
+
+    dummy_names = ['dataset', 'another_dataset']
+
+    # for testing, add a non-existant source uri in the beginning
+    source_dataset_ref = [{'uri': 'file://some/none-existant/dataset'}]
+    for name in dummy_names:
+        t_spec = default_create_dataset_task_spec.copy()
+        t_spec['name'] = name
+        t = CreateDatasetTask(**t_spec)
         fw_action = t.run_task({})
         logger.debug("FWAction:")
         _log_nested_dict(logger.debug, fw_action.as_dict())
         uri = fw_action.stored_data['uri']
 
-        with TemporaryOSEnviron(_read_json(self.files['dtool_config_path'])):
-            ret = verify(True, uri)
-        self.assertEqual(ret, True)
+        logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
+            {'uri': uri, **default_freeze_dataset_task_spec}))
+        t = FreezeDatasetTask(
+            uri=uri, **default_freeze_dataset_task_spec)
+        fw_action = t.run_task({})
+        logger.debug("FWAction:")
+        _log_nested_dict(logger.debug, fw_action.as_dict())
+        # uri = fw_action.stored_data['uri']
 
-        # legend:
-        # - True compares key and value
-        # - False confirms key existance but does not compare value
-        # - str looks up value from config gile
+        with TemporaryOSEnviron(_read_json(files['dtool_config_path'])):
+            ret = verify(True, uri)
+
+        assert ret
+
         to_compare = {
             'project': True,
             'description': True,
@@ -767,404 +836,123 @@ class DtoolTasksTest(unittest.TestCase):
             'metadata': {
                 'mode': True,
                 'step': True,
-                'static_field': True,
-                'dynamic_field': True,
             }
         }
 
         compares = _compare_frozen_metadata_against_template(
-            os.path.join(self._dataset_name, "README.yml"),
-            self.files['dtool_readme_static_and_dynamic_metadata_test'],
-            self.files['dtool_config_path'],
+            os.path.join(DATASET_NAME, "README.yml"),
+            files['dtool_readme_template_path'],
+            files['dtool_config_path'],
             to_compare
         )
-        self.assertEqual(compares, True)
-
-        return uri
-
-    def test_params_from_fw_spec(self):
-        """Will create dataset with some task parameters pulled from fw_spec."""
-        logger = logging.getLogger(__name__)
-
-        t_spec = {
-            **self.default_create_dataset_task_spec,
-            'creator_username': {'key': 'deeply->deeply->nested->username'}
-        }
-        t = CreateDatasetTask(**t_spec)
-
-        fw_action = t.run_task(
+        assert compares
+        source_dataset_ref.append(
             {
-                'deeply': {
-                    'deeply': {
-                        'nested': {
-                            'username': 'unittest'
-                        }
-                    }
-                }
+                'name': fw_action.stored_data['name'],
+                'uri': fw_action.stored_data['uri'],
+                'uuid': fw_action.stored_data['uuid'],
+
             }
         )
-        logger.debug("FWAction:")
-        _log_nested_dict(logger.debug, fw_action.as_dict())
-        uri = fw_action.stored_data['uri']
 
-        logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
-            {'uri': uri, **self.default_freeze_dataset_task_spec}))
-        t = FreezeDatasetTask(
-            uri=uri, **self.default_freeze_dataset_task_spec)
-        fw_action = t.run_task({})
-        logger.debug("FWAction:")
-        _log_nested_dict(logger.debug, fw_action.as_dict())
-        uri = fw_action.stored_data['uri']
+    logger.debug("Derive from source datasets with URIs '{}'.".format(
+        source_dataset_ref))
 
-        with TemporaryOSEnviron(_read_json(self.files['dtool_config_path'])):
-            ret = verify(True, uri)
-        self.assertEqual(ret, True)
+    t_spec = default_create_dataset_task_spec.copy()
+    t_spec['name'] = 'derived_datset'
+    t_spec['source_dataset'] = source_dataset_ref
 
-        # check creator_username
-        dataset = dtoolcore.DataSet.from_uri(uri)
-        self.assertEqual(
-            dataset._admin_metadata["creator_username"],
-            'unittest')
+    logger.debug("Instantiate another CreateDatasetTask with task spec:")
+    _log_nested_dict(logger.debug, t_spec)
+    t = CreateDatasetTask(**t_spec)
+    fw_action = t.run_task({})
+    logger.debug("FWAction:")
+    _log_nested_dict(logger.debug, fw_action.as_dict())
+    derived_datset_uri = fw_action.stored_data['uri']
 
-        return uri
+    logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
+        {'uri': derived_datset_uri, **default_freeze_dataset_task_spec}))
+    t = FreezeDatasetTask(
+        uri=derived_datset_uri, **default_freeze_dataset_task_spec)
+    fw_action = t.run_task({})
+    logger.debug("FWAction:")
+    _log_nested_dict(logger.debug, fw_action.as_dict())
+    derived_dataset_uri = fw_action.stored_data['uri']
 
-    def test_copy_dataset_task_to_smb_share(self):
-        """Requires a guest-writable share named 'sambashare' available locally.
+    with TemporaryOSEnviron(_read_json(files['dtool_config_path'])):
+        ret = verify(True, derived_datset_uri)
+    assert ret
 
-        The share has to offer an empty sub-directory 'dtool'.
+    # check that fields for derived datasets agree
+    # if handled corrctly, then the second uri in the list must have
+    # been picked as primary source
+    source_dataset = dtoolcore.DataSet.from_uri(source_dataset_ref[1]['uri'])
+    derived_dataset = dtoolcore.DataSet.from_uri(derived_dataset_uri)
+    assert source_dataset.name == derived_dataset.get_annotation("source_dataset_name")
+    assert source_dataset.uri == derived_dataset.get_annotation("source_dataset_uri")
+    assert source_dataset.uuid == derived_dataset.get_annotation("source_dataset_uuid")
 
-        A snippet within /ect/samba/smb.conf for tetsing purposes may look like
-        this:
-
-            [sambashare]
-                comment = Samba on Ubuntu
-                path = /tmp/sambashare
-                guest ok = yes
-                available = yes
-                read only = no
-                writeable = yes
-                browsable = yes
-                create mask = 0664
-                directory mask = 0775
-                guest account = unix-user-with-write-privilieges
-                force user = unix-user-with-write-privilieges
-                force group = sambashare
-
-        You may as well modify access parameters within 'dtool.json' config.
-        """
-        if not self.smb_avail:
-            self.skipTest("No smb server available.")
-        logger = logging.getLogger(__name__)
-
-        # create a dummy dataset locally for transferring to share
-        self.test_create_dataset_task_run()
-
-        # configure within dtool.json
-        # target = 'smb://test-share'
-
-        logger.debug("Instantiate CopyDatasetTask.")
-        t = CopyDatasetTask(
-            **self.default_copy_dataset_task_spec)
-
-        fw_action = t.run_task({})
-        logger.debug("FWAction:")
-        _log_nested_dict(logger.debug, fw_action.as_dict())
-        target_uri = fw_action.stored_data['uri']
-
-        with TemporaryOSEnviron(self.default_dtool_config):
-            ret = verify(True, target_uri)
-        self.assertEqual(ret, True)
-
-        return target_uri
-
-        # TODO: remove dataset from testing share
-
-    def test_create_derived_dataset(self):
-        """Create two datasets, one derived from the other."""
-        logger = logging.getLogger(__name__)
-
-        # create a dummy dataset to derive from
-        source_dataset_uri = self.test_create_dataset_task_run()
-        logger.debug("Derive from source dataset with URI '{}'.".format(
-            source_dataset_uri))
-
-        t_spec = self.default_create_dataset_task_spec.copy()
-        t_spec['name'] = 'derived_datset'
-        t_spec['source_dataset_uri'] = source_dataset_uri
-
-        logger.debug("Instantiate another CreateDatasetTask with task spec:")
-        _log_nested_dict(logger.debug, t_spec)
-        t = CreateDatasetTask(**t_spec)
-        fw_action = t.run_task({})
-        logger.debug("FWAction:")
-        _log_nested_dict(logger.debug, fw_action.as_dict())
-        derived_datset_uri = fw_action.stored_data['uri']
-
-        logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
-            {'uri': derived_datset_uri, **self.default_freeze_dataset_task_spec}))
-        t = FreezeDatasetTask(
-            uri=derived_datset_uri, **self.default_freeze_dataset_task_spec)
-        fw_action = t.run_task({})
-        logger.debug("FWAction:")
-        _log_nested_dict(logger.debug, fw_action.as_dict())
-        derived_dataset_uri = fw_action.stored_data['uri']
-
-        with TemporaryOSEnviron(_read_json(self.files['dtool_config_path'])):
-            ret = verify(True, derived_datset_uri)
-        self.assertEqual(ret, True)
-
-        # check that fields for derived datasets agree
-        source_dataset = dtoolcore.DataSet.from_uri(source_dataset_uri)
-        derived_dataset = dtoolcore.DataSet.from_uri(derived_dataset_uri)
-        self.assertEqual(
-            source_dataset.name,
-            derived_dataset.get_annotation("source_dataset_name"))
-        self.assertEqual(
-            source_dataset.uri,
-            derived_dataset.get_annotation("source_dataset_uri"))
-        self.assertEqual(
-            source_dataset.uuid,
-            derived_dataset.get_annotation("source_dataset_uuid"))
-
-    def test_create_derived_dataset_from_multiple_source_dataset_uris(self):
-        """Create three datasets, one derived from the other two."""
-        logger = logging.getLogger(__name__)
-
-        # create two dummy datasets to derive from
-
-        logger.debug("Instantiate CreateDatasetTask with '{}'".format(
-            self.default_create_dataset_task_spec))
-
-        dummy_names = ['dataset', 'another_dataset']
-
-        # for testing, add a non-existant source uri in the beginning
-        source_dataset_ref = [{'uri': 'file://some/none-existant/dataset'}]
-        for name in dummy_names:
-            t_spec = self.default_create_dataset_task_spec.copy()
-            t_spec['name'] = name
-            t = CreateDatasetTask(**t_spec)
-            fw_action = t.run_task({})
-            logger.debug("FWAction:")
-            _log_nested_dict(logger.debug, fw_action.as_dict())
-            uri = fw_action.stored_data['uri']
-            # source_dataset_uri.append(fw_action.stored_data['uri'])
-
-            logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
-                {'uri': uri, **self.default_freeze_dataset_task_spec}))
-            t = FreezeDatasetTask(
-                uri=uri, **self.default_freeze_dataset_task_spec)
-            fw_action = t.run_task({})
-            logger.debug("FWAction:")
-            _log_nested_dict(logger.debug, fw_action.as_dict())
-            # uri = fw_action.stored_data['uri']
-
-            with TemporaryOSEnviron(_read_json(self.files['dtool_config_path'])):
-                ret = verify(True, uri)
-
-            self.assertEqual(ret, True)
-
-            to_compare = {
-                'project': True,
-                'description': True,
-                'owners': [{
-                    'name': 'DTOOL_USER_FULL_NAME',
-                    'email': 'DTOOL_USER_EMAIL',
-                    'username': False,
-                }],
-                'creation_date': False,
-                'expiration_date': False,
-                'metadata': {
-                    'mode': True,
-                    'step': True,
-                }
-            }
-
-            compares = _compare_frozen_metadata_against_template(
-                os.path.join(self._dataset_name, "README.yml"),
-                self.files['dtool_readme_template_path'],
-                self.files['dtool_config_path'],
-                to_compare
-            )
-            self.assertEqual(compares, True)
-            source_dataset_ref.append(
-                {
-                    'name': fw_action.stored_data['name'],
-                    'uri': fw_action.stored_data['uri'],
-                    'uuid': fw_action.stored_data['uuid'],
-
-                }
-            )
-
-        logger.debug("Derive from source datasets with URIs '{}'.".format(
-            source_dataset_ref))
-
-        t_spec = self.default_create_dataset_task_spec.copy()
-        t_spec['name'] = 'derived_datset'
-        t_spec['source_dataset_uri'] = [d['uri'] for d in source_dataset_ref]
-
-        logger.debug("Instantiate another CreateDatasetTask with task spec:")
-        _log_nested_dict(logger.debug, t_spec)
-        t = CreateDatasetTask(**t_spec)
-        fw_action = t.run_task({})
-        logger.debug("FWAction:")
-        _log_nested_dict(logger.debug, fw_action.as_dict())
-        derived_datset_uri = fw_action.stored_data['uri']
-
-        logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
-            {'uri': derived_datset_uri, **self.default_freeze_dataset_task_spec}))
-        t = FreezeDatasetTask(
-            uri=derived_datset_uri, **self.default_freeze_dataset_task_spec)
-        fw_action = t.run_task({})
-        logger.debug("FWAction:")
-        _log_nested_dict(logger.debug, fw_action.as_dict())
-        derived_dataset_uri = fw_action.stored_data['uri']
-
-        with TemporaryOSEnviron(_read_json(self.files['dtool_config_path'])):
-            ret = verify(True, derived_datset_uri)
-        self.assertEqual(ret, True)
-
-        # check that fields for derived datasets agree
-        # if handled corrctly, then the second uri in the list must have
-        # been picked as primary source
-        source_dataset = dtoolcore.DataSet.from_uri(source_dataset_ref[1]['uri'])
-        derived_dataset = dtoolcore.DataSet.from_uri(derived_dataset_uri)
-        self.assertEqual(
-            source_dataset.name,
-            derived_dataset.get_annotation("source_dataset_name"))
-        self.assertEqual(
-            source_dataset.uri,
-            derived_dataset.get_annotation("source_dataset_uri"))
-        self.assertEqual(
-            source_dataset.uuid,
-            derived_dataset.get_annotation("source_dataset_uuid"))
-
-        # make sure dependeny annotations are set correctly
-        source_datasets = derived_dataset.get_annotation("derived_from")
-        for ref, cur in zip(source_dataset_ref, source_datasets):
-            self.assertEqual(len(ref), len(cur))
-            for k, l in zip(sorted(ref), sorted(cur)):
-                self.assertEqual(k, l)
-                self.assertEqual(ref[k], cur[l])
-
-    def test_create_derived_dataset_from_multiple_source_datasets(self):
-        """Create three datasets, one derived from the other two."""
-        logger = logging.getLogger(__name__)
-
-        # create two dummy datasets to derive from
-
-        logger.debug("Instantiate CreateDatasetTask with '{}'".format(
-            self.default_create_dataset_task_spec))
-
-        dummy_names = ['dataset', 'another_dataset']
-
-        # for testing, add a non-existant source uri in the beginning
-        source_dataset_ref = [{'uri': 'file://some/none-existant/dataset'}]
-        for name in dummy_names:
-            t_spec = self.default_create_dataset_task_spec.copy()
-            t_spec['name'] = name
-            t = CreateDatasetTask(**t_spec)
-            fw_action = t.run_task({})
-            logger.debug("FWAction:")
-            _log_nested_dict(logger.debug, fw_action.as_dict())
-            uri = fw_action.stored_data['uri']
-
-            logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
-                {'uri': uri, **self.default_freeze_dataset_task_spec}))
-            t = FreezeDatasetTask(
-                uri=uri, **self.default_freeze_dataset_task_spec)
-            fw_action = t.run_task({})
-            logger.debug("FWAction:")
-            _log_nested_dict(logger.debug, fw_action.as_dict())
-            # uri = fw_action.stored_data['uri']
-
-            with TemporaryOSEnviron(_read_json(self.files['dtool_config_path'])):
-                ret = verify(True, uri)
-
-            self.assertEqual(ret, True)
-
-            to_compare = {
-                'project': True,
-                'description': True,
-                'owners': [{
-                    'name': 'DTOOL_USER_FULL_NAME',
-                    'email': 'DTOOL_USER_EMAIL',
-                    'username': False,
-                }],
-                'creation_date': False,
-                'expiration_date': False,
-                'metadata': {
-                    'mode': True,
-                    'step': True,
-                }
-            }
-
-            compares = _compare_frozen_metadata_against_template(
-                os.path.join(self._dataset_name, "README.yml"),
-                self.files['dtool_readme_template_path'],
-                self.files['dtool_config_path'],
-                to_compare
-            )
-            self.assertEqual(compares, True)
-            source_dataset_ref.append(
-                {
-                    'name': fw_action.stored_data['name'],
-                    'uri': fw_action.stored_data['uri'],
-                    'uuid': fw_action.stored_data['uuid'],
-
-                }
-            )
-
-        logger.debug("Derive from source datasets with URIs '{}'.".format(
-            source_dataset_ref))
-
-        t_spec = self.default_create_dataset_task_spec.copy()
-        t_spec['name'] = 'derived_datset'
-        t_spec['source_dataset'] = source_dataset_ref
-
-        logger.debug("Instantiate another CreateDatasetTask with task spec:")
-        _log_nested_dict(logger.debug, t_spec)
-        t = CreateDatasetTask(**t_spec)
-        fw_action = t.run_task({})
-        logger.debug("FWAction:")
-        _log_nested_dict(logger.debug, fw_action.as_dict())
-        derived_datset_uri = fw_action.stored_data['uri']
-
-        logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
-            {'uri': derived_datset_uri, **self.default_freeze_dataset_task_spec}))
-        t = FreezeDatasetTask(
-            uri=derived_datset_uri, **self.default_freeze_dataset_task_spec)
-        fw_action = t.run_task({})
-        logger.debug("FWAction:")
-        _log_nested_dict(logger.debug, fw_action.as_dict())
-        derived_dataset_uri = fw_action.stored_data['uri']
-
-        with TemporaryOSEnviron(_read_json(self.files['dtool_config_path'])):
-            ret = verify(True, derived_datset_uri)
-        self.assertEqual(ret, True)
-
-        # check that fields for derived datasets agree
-        # if handled corrctly, then the second uri in the list must have
-        # been picked as primary source
-        source_dataset = dtoolcore.DataSet.from_uri(source_dataset_ref[1]['uri'])
-        derived_dataset = dtoolcore.DataSet.from_uri(derived_dataset_uri)
-        self.assertEqual(
-            source_dataset.name,
-            derived_dataset.get_annotation("source_dataset_name"))
-        self.assertEqual(
-            source_dataset.uri,
-            derived_dataset.get_annotation("source_dataset_uri"))
-        self.assertEqual(
-            source_dataset.uuid,
-            derived_dataset.get_annotation("source_dataset_uuid"))
-
-        # make sure dependeny annotations are set correctly
-        source_datasets = derived_dataset.get_annotation("derived_from")
-        for ref, cur in zip(source_dataset_ref, source_datasets):
-            self.assertEqual(len(ref), len(cur))
-            for k, l in zip(sorted(ref), sorted(cur)):
-                self.assertEqual(k, l)
-                self.assertEqual(ref[k], cur[l])
+    # make sure dependeny annotations are set correctly
+    source_datasets = derived_dataset.get_annotation("derived_from")
+    for ref, cur in zip(source_dataset_ref, source_datasets):
+        assert len(ref) == len(cur)
+        for k, l in zip(sorted(ref), sorted(cur)):
+            assert k == l
+            assert ref[k] == cur[l]
 
 
-if __name__ == '__main__':
-    unittest.main()
+#
+# copy datasets tests
+#
+def test_copy_dataset_task_to_smb_share(tempdir, files, dtool_config,
+                                        default_create_dataset_task_spec,
+                                        default_freeze_dataset_task_spec,
+                                        default_copy_dataset_task_spec):
+    """Requires a guest-writable share named 'sambashare' available locally.
+
+    The share has to offer an empty sub-directory 'dtool'.
+
+    A snippet within /ect/samba/smb.conf for tetsing purposes may look like
+    this:
+
+        [sambashare]
+            comment = Samba on Ubuntu
+            path = /tmp/sambashare
+            guest ok = yes
+            available = yes
+            read only = no
+            writeable = yes
+            browsable = yes
+            create mask = 0664
+            directory mask = 0775
+            guest account = unix-user-with-write-privilieges
+            force user = unix-user-with-write-privilieges
+            force group = sambashare
+
+    You may as well modify access parameters within 'dtool.json' config.
+    """
+    # if not smb_avail:
+    #     skipTest("No smb server available.")
+    logger = logging.getLogger(__name__)
+
+    # create a dummy dataset locally for transferring to share
+    _create_dataset(tempdir, files, dtool_config,
+                    default_create_dataset_task_spec,
+                    default_freeze_dataset_task_spec)
+
+    # configure within dtool.json
+    # target = 'smb://test-share'
+
+    logger.debug("Instantiate CopyDatasetTask.")
+    t = CopyDatasetTask(**default_copy_dataset_task_spec)
+
+    fw_action = t.run_task({})
+    logger.debug("FWAction:")
+    _log_nested_dict(logger.debug, fw_action.as_dict())
+    target_uri = fw_action.stored_data['uri']
+
+    with TemporaryOSEnviron(dtool_config):
+        ret = verify(True, target_uri)
+    assert ret
+
+    return target_uri
