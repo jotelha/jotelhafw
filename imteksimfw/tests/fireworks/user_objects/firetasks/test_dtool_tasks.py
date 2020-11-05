@@ -187,9 +187,12 @@ def verify(full, dataset_uri):
 
     return all_okay
 
-
+#
+# pytest fixtures
+#
 @pytest.fixture
 def files():
+    """Provide paths to dtool tasks tests files."""
     return {
         'dtool_readme_static_and_dynamic_metadata_test':
             os.path.join(
@@ -218,12 +221,6 @@ def dtool_config(files):
 
     # inject configuration into environment:
     dtool_config = _read_json(files['dtool_config_path'])
-    # dynamic_dtool_config_overrides = {
-    #     "DTOOL_SMB_SERVER_NAME_test-share": SAMBA_HOST,
-    #     "DTOOL_SMB_SERVER_PORT_test-share": smb_port_445,
-    # }
-    # dtool_config.update(dynamic_dtool_config_overrides)
-
     logger.debug("dtool config overrides:")
     _log_nested_dict(logger.debug, dtool_config)
 
@@ -232,6 +229,7 @@ def dtool_config(files):
 
 @pytest.fixture
 def default_create_dataset_task_spec(dtool_config, files):
+    """Provide default test task_spec for CreateDatasetTask."""
     return {
         'name': DATASET_NAME,
         'dtool_readme_template_path': files["dtool_readme_template_path"],
@@ -242,6 +240,7 @@ def default_create_dataset_task_spec(dtool_config, files):
 
 @pytest.fixture
 def default_freeze_dataset_task_spec(dtool_config):
+    """Provide default test task_spec for FreezeDatasetTask."""
     return {
         'dtool_config': dtool_config,
         'stored_data': True,
@@ -250,6 +249,7 @@ def default_freeze_dataset_task_spec(dtool_config):
 
 @pytest.fixture
 def default_copy_dataset_task_spec(dtool_config):
+    """Provide default test task_spec for CopyDatasetTask."""
     return {
         'source': DATASET_NAME,
         'target': 'smb://test-share',
@@ -904,10 +904,12 @@ def test_create_derived_dataset_from_multiple_source_datasets(tempdir, files, dt
 #
 # copy datasets tests
 #
+# @pytest.mark.usefixtures("smb_share")
 def test_copy_dataset_task_to_smb_share(tempdir, files, dtool_config,
                                         default_create_dataset_task_spec,
                                         default_freeze_dataset_task_spec,
-                                        default_copy_dataset_task_spec):
+                                        default_copy_dataset_task_spec,
+                                        smb_share):
     """Requires a guest-writable share named 'sambashare' available locally.
 
     The share has to offer an empty sub-directory 'dtool'.
@@ -931,17 +933,40 @@ def test_copy_dataset_task_to_smb_share(tempdir, files, dtool_config,
 
     You may as well modify access parameters within 'dtool.json' config.
     """
-    # if not smb_avail:
-    #     skipTest("No smb server available.")
     logger = logging.getLogger(__name__)
+
+    if smb_share is None:
+        pytest.skip("No smb share provided.")
+
+    username = smb_share.username
+    password = smb_share.password
+    host_name = smb_share.remote_name
+    host_ip, port = smb_share.sock.getpeername()
+
+    smb_share.createDirectory("sambashare", "dtool")
 
     # create a dummy dataset locally for transferring to share
     _create_dataset(tempdir, files, dtool_config,
                     default_create_dataset_task_spec,
                     default_freeze_dataset_task_spec)
 
-    # configure within dtool.json
-    # target = 'smb://test-share'
+    dynamic_dtool_config_overrides = {
+         "DTOOL_SMB_SERVER_NAME_test-share": host_name,
+         "DTOOL_SMB_SERVER_PORT_test-share": port,
+         "DTOOL_SMB_USERNAME_test-share": username,
+         "DTOOL_SMB_PASSWORD_test-share": password,
+         "DTOOL_SMB_DOMAIN_test-share": "WORKGROUP",  # TODO extract
+         "DTOOL_SMB_SERVICE_NAME_test-share": "sambashare",
+         "DTOOL_SMB_PATH_test-share": "dtool"
+    }
+    dtool_config.update(dynamic_dtool_config_overrides)
+    default_copy_dataset_task_spec['dtool_config'].update(dynamic_dtool_config_overrides)
+
+    logger.debug("dtool_config smb overrides:")
+    _log_nested_dict(logger.debug, dtool_config)
+
+    logger.debug("default_copy_dataset_task_spec smb overrides:")
+    _log_nested_dict(logger.debug, default_copy_dataset_task_spec)
 
     logger.debug("Instantiate CopyDatasetTask.")
     t = CopyDatasetTask(**default_copy_dataset_task_spec)

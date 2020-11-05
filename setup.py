@@ -58,7 +58,8 @@ if __name__ == "__main__":
             'ruamel.yaml>=0.16.12',
             'tabulate>=0.8.2',
         ],
-        setup_requires=['setuptools_scm'],
+        setup_requires=['setuptools_scm', 'pytest-runner'],
+        tests_require=['pytest'],
         extras_require={
             'testing': [
                 # ssh tests
