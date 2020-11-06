@@ -11,8 +11,6 @@ from smb.base import NotConnectedError
 
 from utils import _allocate_random_free_port, _random_string
 
-# from .podman_system_service import podman_system_service
-
 SAMBA_CONTAINER_IMAGE_NAME = 'docker.io/dperson/samba:latest'
 SAMBA_HOST = 'localhost'
 
@@ -38,10 +36,8 @@ def smb_share(request, podman_system_service):
     response = requests.get(req)
     if response.status_code == 404:
         logger.info("Image '{}' does not exist, creation not implemented.".format(SAMBA_CONTAINER_IMAGE_NAME))
+        # TODO: implement image creation
         return
-        # uri_suffix = 'libpod/images/pull'
-        # req = request_template.format(uri_suffix)
-        # response = requests.post(req, )
     elif response.status_code != 204:
         logger.warning("Unexpected error at image existance check {}: '{}'.".format(
                        response.status_code, response.text))

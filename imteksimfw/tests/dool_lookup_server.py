@@ -61,7 +61,7 @@ def tmp_app_with_users(request):
         update_permissions,
     )
 
-    tmp_mongo_db_name = random_string()
+    tmp_mongo_db_name = _random_string()
 
     config = {
         "SECRET_KEY": "secret",
@@ -120,7 +120,7 @@ def tmp_app_with_data(request):
         update_permissions,
     )
 
-    tmp_mongo_db_name = random_string()
+    tmp_mongo_db_name = _random_string()
 
     config = {
         "FLASK_ENV": "development",
@@ -225,7 +225,7 @@ def tmp_cli_runner(request):
 
     from dtool_lookup_server import create_app, mongo, sql_db
 
-    tmp_mongo_db_name = random_string()
+    tmp_mongo_db_name = _random_string()
 
     config = {
         "FLASK_ENV": "development",

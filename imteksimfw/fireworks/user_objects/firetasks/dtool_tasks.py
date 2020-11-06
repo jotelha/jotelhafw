@@ -576,7 +576,8 @@ class CreateDatasetTask(DtoolTask):
                     try:
                         first_source_dataset = dtoolcore.DataSet.from_uri(d["uri"])
                     except dtoolcore.DtoolCoreTypeError as exc:
-                        logger.warning("Source dataset #{} with URI '{}' not accessible, skipped.".format(i, d['uri']))
+                        logger.warning("Source dataset #{} with URI '{}' not accessible ( ), skipped.".format(
+                                       i, d['uri'], exc))
                     else:
                         logger.info("Found source dataset #{} with URI '{}' accessible.".format(i, d['uri']))
                         logger.info(
