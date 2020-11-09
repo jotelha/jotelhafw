@@ -36,7 +36,6 @@ import pymongo
 
 from ruamel.yaml import YAML
 
-import dtoolcore
 import dtool_lookup_client.utils
 
 from fireworks.fw_config import FW_LOGGING_FORMAT

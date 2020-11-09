@@ -68,6 +68,8 @@ if __name__ == "__main__":
                 'dtool-smb>=0.1.0',
                 'requests>=2.24.0',
                 'urllib3>=1.25.11',
+                'dtool-lookup-server>=0.15.0',
+                'dtool-lookup-server-direct-mongo-plugin>=0.1.2',
             ],
         },
         entry_points={
