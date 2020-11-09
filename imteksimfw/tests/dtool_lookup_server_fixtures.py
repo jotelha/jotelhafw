@@ -1,9 +1,10 @@
-import random
-import string
+"""dtool lookup server fixtures"""
 import os
 import sys
 
 import pytest
+
+from utils import _random_string
 
 # Pytest does not add the working directory to the path so we do it here.
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -13,11 +14,9 @@ sys.path.insert(0, _ROOT)
 JWT_PUBLIC_KEY = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDV+7UTCb5JMX/GIY3g6kus84K5ko08nKbZcPgtRbTOkdNLFDcfotefNi+Y3bDEwMydXyc7uBmLkl9hyjBwTdCj6zAJ4VhLZ5wN0qg1cmg4Wkm6EUFgBHf7NY6V5M+v6XyZFinmzoe+J5llTH5xXLkieNMNtSDPUZWtRyhT9bwNSzYzBYZ13L1/yJJVUnb8mUmC2RG5ZqT8DZ+R/Y0Z35qACNmVqFTbSwFm3IoW2XcMXZawAKGoj0e9z6Eo6KZIRmVEFOfoeokz92zhS4b+j0+OJfmknpLYLHEyHswOnyFXFeNH1AHkGjDcAZwfr5ZMKpsy9XXlGiO2kFhK7RQ1ITvF olssont@n95996.nbi.ac.uk"  # NOQA
 
 
-from utils import _random_string
-
 @pytest.fixture
 def tmp_app(request):
-
+    """Provide dtool-lookup-server flask app."""
     from dtool_lookup_server import create_app, mongo, sql_db
 
     tmp_mongo_db_name = _random_string()
@@ -53,7 +52,7 @@ def tmp_app(request):
 
 @pytest.fixture
 def tmp_app_with_users(request):
-
+    """Provide dtool-lookup-server flask app with users."""
     from dtool_lookup_server import create_app, mongo, sql_db
     from dtool_lookup_server.utils import (
         register_users,

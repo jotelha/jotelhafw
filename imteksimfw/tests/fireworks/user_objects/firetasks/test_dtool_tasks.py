@@ -191,43 +191,6 @@ def verify(full, dataset_uri):
 # pytest fixtures
 #
 @pytest.fixture
-def files():
-    """Provide paths to dtool tasks tests files."""
-    return {
-        'dtool_readme_static_and_dynamic_metadata_test':
-            os.path.join(
-                module_dir,
-                "dtool_readme_static_and_dynamic_metadata_test.yml"),
-        'dtool_readme_dynamic_metadata_test':
-            os.path.join(
-                module_dir, "dtool_readme_dynamic_metadata_test.yml"),
-        'dtool_readme_static_metadata_test':
-            os.path.join(
-                module_dir, "dtool_readme_static_metadata_test.yml"),
-        'dtool_readme_template_path':
-            os.path.join(module_dir, "dtool_readme.yml"),
-        'dtool_config_path':
-            os.path.join(module_dir, "dtool.json"),
-    }
-
-
-@pytest.fixture
-def dtool_config(files):
-    """Provide default dtool config."""
-    logger = logging.getLogger(__name__)
-    # use environment variables instead of custom config file, see
-    # https://github.com/jic-dtool/dtoolcore/pull/17
-    # _original_environ = os.environ.copy()
-
-    # inject configuration into environment:
-    dtool_config = _read_json(files['dtool_config_path'])
-    logger.debug("dtool config overrides:")
-    _log_nested_dict(logger.debug, dtool_config)
-
-    return dtool_config
-
-
-@pytest.fixture
 def default_create_dataset_task_spec(dtool_config, files):
     """Provide default test task_spec for CreateDatasetTask."""
     return {
