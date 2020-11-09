@@ -10,105 +10,90 @@ __date__ = 'Nov 05, 2020'
 import logging
 import pytest
 
-from imteksimfw.fireworks.user_objects.firetasks.dtool_lookup_tasks import DtoolLookupTask
+from imteksimfw.fireworks.utilities.logging import _log_nested_dict
+
+from imteksimfw.fireworks.user_objects.firetasks.dtool_lookup_tasks import QueryDtoolTask
+
+from test_dtool_tasks import _compare
 
 
 @pytest.fixture
-def default_query_dtool_task_spec(dtool_config):
+def dtool_lookup_config(dtool_config):
+    """Provide default dtool lookup config."""
+    dtool_config.update({
+        "DTOOL_LOOKUP_SERVER_URL": "https://localhost:5000",
+        "DTOOL_LOOKUP_SERVER_TOKEN": "http://localhost:5001/token",
+        "DTOOL_LOOKUP_SERVER_USERNAME": "testuser",
+        "DTOOL_LOOKUP_SERVER_PASSWORD": "test_password"
+    })
+    return dtool_config
+
+
+@pytest.fixture
+def default_query_dtool_task_spec(dtool_lookup_config):
     """Provide default test task_spec for QueryDtoolTask."""
     return {
-        'dtool_config': dtool_config,
+        'dtool_config': dtool_lookup_config,
         'stored_data': True,
+        'query': {
+            'base_uri': 'smb://test-share',
+            'name': {'$regex': 'test'},
+        },
+        'loglevel': logging.DEBUG,
     }
 
 
 #
 # dtool lookup tasks tests
 #
-def test_query_dtool_task_run(dtool_lookup_server, dtool_config):
+def test_query_dtool_task_run(dtool_lookup_server, default_query_dtool_task_spec, dtool_lookup_config):
     """Will lookup some dataset on the server."""
     logger = logging.getLogger(__name__)
 
     logger.debug("Instantiate QueryDtoolTask with '{}'".format(
         default_query_dtool_task_spec))
 
-    # second, try some direct mongo
-    query = {
-        'query': {
-            'base_uri': 's3://snow-white',
-            'readme.descripton': {'$regex': 'from queen'},
-        }
+    t = QueryDtoolTask(**default_query_dtool_task_spec)
+    fw_action = t.run_task({})
+    logger.debug("FWAction:")
+    _log_nested_dict(logger.debug, fw_action.as_dict())
+
+    response = fw_action.stored_data['response']
+
+    assert len(response) == 1
+
+    # TODO: dataset creation in test
+    expected_respones = [
+      {
+        "base_uri": "smb://test-share",
+        "created_at": "Sun, 08 Nov 2020 18:38:40 GMT",
+        "creator_username": "jotelha",
+        "dtoolcore_version": "3.17.0",
+        "frozen_at": "Mon, 09 Nov 2020 11:33:41 GMT",
+        "name": "simple_test_dataset",
+        "tags": [],
+        "type": "dataset",
+        "uri": "smb://test-share/1a1f9fad-8589-413e-9602-5bbd66bfe675",
+        "uuid": "1a1f9fad-8589-413e-9602-5bbd66bfe675"
+      }
+    ]
+
+    to_compare = {
+        "base_uri": True,
+        "created_at": False,
+        "creator_username": True,
+        "dtoolcore_version": False,
+        "frozen_at": False,
+        "name": True,
+        "tags": True,
+        "type": True,
+        "uri": True,
+        "uuid": True
     }
-    logger.info(type(dtool_lookup_server))
-    # r = dtool_lookup_server.post(
-    #     "/mongo/query",
-    #     headers=headers,
-    #     data=json.dumps(query),
-    #     content_type="application/json"
-    # )
-    # assert r.status_code == 200
-    # assert len(json.loads(r.data.decode("utf-8"))) == 2
-    #
-    # t = CreateDatasetTask(**default_create_dataset_task_spec)
-    # fw_action = t.run_task({})
-    # logger.debug("FWAction:")
-    # _log_nested_dict(logger.debug, fw_action.as_dict())
-    # uri = fw_action.stored_data['uri']
-    #
-    # logger.debug("Instantiate FreezeDatasetTask with '{}'".format(
-    #     {'uri': uri, **default_freeze_dataset_task_spec}))
-    # t = FreezeDatasetTask(
-    #     uri=uri, **default_freeze_dataset_task_spec)
-    # fw_action = t.run_task({})
-    # logger.debug("FWAction:")
-    # _log_nested_dict(logger.debug, fw_action.as_dict())
-    # uri = fw_action.stored_data['uri']
-    #
-    # with TemporaryOSEnviron(_read_json(files['dtool_config_path'])):
-    #     ret = verify(True, uri)
-    #
-    # assert ret
-    #
-    # # compare metadata template and generated README.yml
-    # # expect filled in values like this:
-    # #    project: DtoolTasksTest
-    # #    description: Tests on Fireworks tasks for handling dtool datasets.
-    # #    owners:
-    # #      - name: Dtool Tasks Test
-    # #        email: dtool@imteksimfw
-    # #        username: jotelha
-    # #    creation_date: 2020-04-27
-    # #    expiration_date: 2020-04-27
-    # #    metadata:
-    # #      mode: trial
-    # #      step: override this
-    #
-    # # legend:
-    # # - True compares key and value
-    # # - False confirms key existance but does not compare value
-    # # - str looks up value from config gile
-    # to_compare = {
-    #     'project': True,
-    #     'description': True,
-    #     'owners': [{
-    #         'name': 'DTOOL_USER_FULL_NAME',
-    #         'email': 'DTOOL_USER_EMAIL',
-    #         'username': False,
-    #     }],
-    #     'creation_date': False,
-    #     'expiration_date': False,
-    #     'metadata': {
-    #         'mode': True,
-    #         'step': True,
-    #     }
-    # }
-    #
-    # compares = _compare_frozen_metadata_against_template(
-    #     os.path.join(DATASET_NAME, "README.yml"),
-    #     files['dtool_readme_template_path'],
-    #     files['dtool_config_path'],
-    #     to_compare
-    # )
-    # assert compares
-    #
-    # return uri
+
+    compares = _compare(
+        response[0],
+        expected_respones[0],
+        to_compare
+    )
+    assert compares

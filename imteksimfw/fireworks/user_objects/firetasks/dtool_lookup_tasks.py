@@ -54,14 +54,17 @@ __copyright__ = 'Copyright 2020, IMTEK Simulation, University of Freiburg'
 __email__ = 'johannes.hoermann@imtek.uni-freiburg.de, johannes.laurin@gmail.com'
 __date__ = 'Nov 03, 2020'
 
+# TODO: dates might be string or float, fix on server side
+Date = (str, float)
+
 DEFAULT_FORMATTER = logging.Formatter(FW_LOGGING_FORMAT)
 
 # fields expected in dtool-lookup-server's response
 FIELD_TYPE_DICT = {
     'base_uri': str,
-    'created_at': float,
+    'created_at': Date,
     'creator_username': str,
-    'frozen_at': float,
+    'frozen_at': Date,
     'name': str,
     'uri': str,
     'uuid': str,
