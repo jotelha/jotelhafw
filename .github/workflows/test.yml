@@ -34,6 +34,10 @@ jobs:
         pip install --upgrade setuptools wheel setuptools-scm[toml] importlib-metadata
         pip install flake8 pytest pytest-cov
 
+    - name: Install modified fireworks
+      run: |
+        pip install git+https://github.com/jotelha/fireworks.git@v${{ matrix.fireworks-version }}-mod
+
     - name: Install this package
       run: |
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
