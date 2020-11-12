@@ -10,6 +10,7 @@ jobs:
       matrix:
         python-version: [3.6, 3.7, 3.8]
         dtool-lookup-server-version: [0.15.0]
+        fireworks-version: [1.9.6]
 
     steps:
     - name: Git checkout
