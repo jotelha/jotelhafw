@@ -22,7 +22,7 @@ def dtool_lookup_config(dtool_config):
     """Provide default dtool lookup config."""
     dtool_config.update({
         "DTOOL_LOOKUP_SERVER_URL": "https://localhost:5000",
-        "DTOOL_LOOKUP_SERVER_TOKEN": "http://localhost:5001/token",
+        "DTOOL_LOOKUP_SERVER_TOKEN_GENERATOR_URL": "http://localhost:5001/token",
         "DTOOL_LOOKUP_SERVER_USERNAME": "testuser",
         "DTOOL_LOOKUP_SERVER_PASSWORD": "test_password"
     })
@@ -64,18 +64,18 @@ def test_query_dtool_task_run(dtool_lookup_server, default_query_dtool_task_spec
 
     # TODO: dataset creation in test
     expected_respones = [
-      {
-        "base_uri": "smb://test-share",
-        "created_at": "Sun, 08 Nov 2020 18:38:40 GMT",
-        "creator_username": "jotelha",
-        "dtoolcore_version": "3.17.0",
-        "frozen_at": "Mon, 09 Nov 2020 11:33:41 GMT",
-        "name": "simple_test_dataset",
-        "tags": [],
-        "type": "dataset",
-        "uri": "smb://test-share/1a1f9fad-8589-413e-9602-5bbd66bfe675",
-        "uuid": "1a1f9fad-8589-413e-9602-5bbd66bfe675"
-      }
+        {
+            "base_uri": "smb://test-share",
+            "created_at": "Sun, 08 Nov 2020 18:38:40 GMT",
+            "creator_username": "jotelha",
+            "dtoolcore_version": "3.17.0",
+            "frozen_at": "Mon, 09 Nov 2020 11:33:41 GMT",
+            "name": "simple_test_dataset",
+            "tags": [],
+            "type": "dataset",
+            "uri": "smb://test-share/1a1f9fad-8589-413e-9602-5bbd66bfe675",
+            "uuid": "1a1f9fad-8589-413e-9602-5bbd66bfe675"
+        }
     ]
 
     to_compare = {

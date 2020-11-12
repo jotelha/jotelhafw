@@ -36,8 +36,6 @@ import pymongo
 
 from ruamel.yaml import YAML
 
-import dtool_lookup_client.utils
-
 from fireworks.fw_config import FW_LOGGING_FORMAT
 
 from fireworks.core.firework import FWAction
@@ -53,6 +51,7 @@ __author__ = 'Johannes Laurin Hoermann'
 __copyright__ = 'Copyright 2020, IMTEK Simulation, University of Freiburg'
 __email__ = 'johannes.hoermann@imtek.uni-freiburg.de, johannes.laurin@gmail.com'
 __date__ = 'Nov 03, 2020'
+
 
 # TODO: dates might be string or float, fix on server side
 Date = (str, float)
@@ -275,6 +274,9 @@ class QueryDtoolTask(DtoolLookupTask):
         "sort_direction", "sort_key"]
 
     def _run_task_internal(self, fw_spec):
+        import dtool_lookup_api
+        dtool_lookup_api.core.config.Config.interactive = False
+
         logger = logging.getLogger(__name__)
 
         query = self.get("query", {})
@@ -302,33 +304,32 @@ class QueryDtoolTask(DtoolLookupTask):
         fizzle_empty_result = self.get("fizzle_empty_result", True)
         fizzle_empty_result = from_fw_spec(fizzle_empty_result, fw_spec)
 
-        fizzle_degenerate_dataset_name = self.get(
-          "fizzle_degenerate_dataset_name", True)
+        fizzle_degenerate_dataset_name = self.get("fizzle_degenerate_dataset_name", True)
 
         meta_file = self.get("meta_file", None)
         meta_file = from_fw_spec(meta_file, fw_spec)
 
-        if isinstance(query, dict):
-            query = arrow_to_dot(query)
-            # convert to query string
-            query_str = json.dumps(query)
-        elif isinstance(query, str):
-            query_str = query
-        else:
-            raise ValueError(
-                "query type('{}') is {}, but must be either dict or str".format(
-                    query, type(query)
-                ))
+        # if isinstance(query, dict):
+        #     query = arrow_to_dot(query)
+        #     # convert to query string
+        #     query_str = json.dumps(query)
+        # elif isinstance(query, str):
+        #     query_str = query
+        # else:
+        #     raise ValueError(
+        #         "query type('{}') is {}, but must be either dict or str".format(
+        #             query, type(query)
+        #         ))
 
-        logger.info("Query string: '{}'".format(query_str))
+        # logger.info("Query string: '{}'".format(query_str))
 
-        r = dtool_lookup_client.utils.query(query_str, mongosyntax=True)
+        r = dtool_lookup_api.query(query)
 
         logger.debug("Server response: '{}'".format(r))
 
         if fizzle_empty_result and (len(r) == 0):
-            raise ValueError("Query yielded empty result! (query: {:s})".format(
-                query_str))
+            raise ValueError("Query yielded empty result! (query: {})".format(
+                query))
 
         for doc in r:
             logger.debug("Validating '{}'...".format(doc))
@@ -355,7 +356,7 @@ class QueryDtoolTask(DtoolLookupTask):
                 raise ValueError((
                     "The dataset name {} is used "
                     "a second time by result {:d}/{:d}! (query: {})").format(
-                        dataset_name, i, len(r), query_str))
+                        dataset_name, i, len(r), query))
 
             unique_dataset_names.add(dataset_name)
 

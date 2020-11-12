@@ -1,5 +1,7 @@
-from setuptools import setup, find_packages
 import os
+
+from setuptools import setup, find_packages
+from setuptools_scm import get_version
 
 __author__ = "Johannes Hörmann"
 __copyright__ = "Copyright 2020, IMTEK Simulation, University of Freiburg"
@@ -8,11 +10,8 @@ __email__ = "johannes.hoermann@imtek.uni-freiburg.de"
 __date__ = "Mar 18, 2020"
 
 module_dir = os.path.dirname(os.path.abspath(__file__))
-
-
-scm_version_options = {
-    'write_to': 'imteksimfw/version.py'
-    }
+readme = open(os.path.join(module_dir, 'README.md')).read()
+version = get_version(root='.', relative_to=__file__)
 
 
 def local_scheme(version):
@@ -25,18 +24,17 @@ url = 'https://github.com/IMTEK-Simulation/imteksimfw'
 
 if __name__ == "__main__":
     setup(
-        author='Johannes Hörmann',
+        author='Johannes Laurin Hoermann',
         author_email='johannes.hoermann@imtek.uni-freiburg.de',
         name='imteksimfw',
         description='Fireworks additions',
-        long_description=open(os.path.join(module_dir, 'README.md')).read(),
+        long_description=readme,
         url=url,
         use_scm_version={
             "root": '.',
             "relative_to": __file__,
             "write_to": os.path.join("imteksimfw", "version.py"),
             "local_scheme": local_scheme},
-        license='MIT',
         packages=find_packages(),
         include_package_data=True,
         python_requires='>=3.6.5',
@@ -46,6 +44,7 @@ if __name__ == "__main__":
             'ansible>=2.9.1',
             'dtoolcore>=3.17.0',
             'dtool-create>=0.23.0',
+            'dtool-lookup-api>=0.1.0',
             'fireworks>=1.9.5',
             'jinja2>=2.10',
             'jinja2-time>=0.2.0',
@@ -78,4 +77,6 @@ if __name__ == "__main__":
                 'render = imteksimfw.fireworks.scripts.render_run:main',
             ]
         },
+        download_url="{}/tarball/{}".format(url, version),
+        license='MIT',
     )
