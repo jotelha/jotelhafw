@@ -24,7 +24,8 @@ def dtool_lookup_config(dtool_config):
         "DTOOL_LOOKUP_SERVER_URL": "https://localhost:5000",
         "DTOOL_LOOKUP_SERVER_TOKEN_GENERATOR_URL": "http://localhost:5001/token",
         "DTOOL_LOOKUP_SERVER_USERNAME": "testuser",
-        "DTOOL_LOOKUP_SERVER_PASSWORD": "test_password"
+        "DTOOL_LOOKUP_SERVER_PASSWORD": "test_password",
+        "DTOOL_LOOKUP_SERVER_VERIFY_SSL": False,
     })
     return dtool_config
 
