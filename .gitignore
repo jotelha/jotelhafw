@@ -2,7 +2,6 @@
 .idea/
 launchpad/
 git/
-etc/
 bin/*
 include/
 setup/config.sh
