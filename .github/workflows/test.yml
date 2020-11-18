@@ -65,6 +65,7 @@ jobs:
         podman-compose pull  # won't pull images that have a build command in the compose file
         podman image ls
 
+        cd keys
         bash generate.sh
         bash generate_jwt_key.sh        
 
