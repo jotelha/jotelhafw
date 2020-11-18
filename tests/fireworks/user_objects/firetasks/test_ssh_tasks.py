@@ -47,7 +47,7 @@ class SSHTasksTest(unittest.TestCase):
             'ssh_user': 'testuser',
             'local_port': None,  # automatic allocation
             'port_file': '.port',
-            #'ssh_port': 22,
+            # 'ssh_port': 22,
             'ssh_keyfile': os.path.join(module_dir, "id_rsa"),
         }
 
