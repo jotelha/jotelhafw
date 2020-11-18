@@ -37,8 +37,8 @@ from fireworks.core.firework import FWAction, FiretaskBase
 from fireworks.utilities.filepad import FilePad
 from fireworks.utilities.dict_mods import get_nested_dict_value, arrow_to_dot
 
-from imteksimfw.fireworks.utilities.logging import LoggingContext, _log_nested_dict
-from imteksimfw.fireworks.utilities.dict import dict_merge, from_fw_spec
+from imteksimfw.utils.logging import LoggingContext, _log_nested_dict
+from imteksimfw.utils.dict import dict_merge
 
 from fireworks.fw_config import FW_LOGGING_FORMAT
 from fireworks.utilities.fw_serializers import ENCODING_PARAMS
@@ -65,7 +65,7 @@ class GetObjectFromFilepadTask(FiretaskBase):
 
     Required params:
         - query (dict or str): mongo db query identifying files to fetch.
-          Same as within fireworks.utilities.dict_mods, use '->' in dict keys
+          Same as within fireworks.utils.dict_mods, use '->' in dict keys
           for querying nested documents, instead of MongoDB '.' (dot) seperator.
           Do use '.' and NOT '->' within the 'sort_key' field.
 
@@ -101,7 +101,7 @@ class GetObjectFromFilepadTask(FiretaskBase):
         - output (str): spec key that will be used to pass output to child
             fireworks. Default: None
         - dict_mod (str, default: '_set'): how to insert output into output
-            key, see fireworks.utilities.dict_mods
+            key, see fireworks.utils.dict_mods
         - propagate (bool, default: None): if True, then set the
             FWAction 'propagate' flag and propagate updated fw_spec not only to
             direct children, but to all descendants down to wokflow's leaves.

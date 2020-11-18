@@ -46,9 +46,7 @@ from fireworks.user_objects.firetasks.script_task import ScriptTask, PyTask
 # in order to have a somewhat centralized encoding configuration
 from fireworks.utilities.fw_serializers import ENCODING_PARAMS
 
-from fireworks.utilities.dict_mods import arrow_to_dot
-
-from imteksimfw.fireworks.utilities.tracer import trace_func
+from imteksimfw.utils.tracer import trace_func
 
 __author__ = 'Johannes Hoermann'
 __copyright__ = 'Copyright 2018, IMTEK'

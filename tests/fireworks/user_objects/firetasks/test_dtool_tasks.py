@@ -16,8 +16,8 @@ import ruamel.yaml as yaml
 
 import dtoolcore
 
-from imteksimfw.fireworks.utilities.environ import TemporaryOSEnviron
-from imteksimfw.fireworks.utilities.logging import _log_nested_dict
+from imteksimfw.utils import TemporaryOSEnviron
+from imteksimfw.utils.logging import _log_nested_dict
 from imteksimfw.fireworks.user_objects.firetasks.dtool_tasks import (
     CreateDatasetTask, FreezeDatasetTask, CopyDatasetTask)
 

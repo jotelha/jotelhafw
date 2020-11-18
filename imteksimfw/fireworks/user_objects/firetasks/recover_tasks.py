@@ -38,8 +38,8 @@ from fireworks.utilities.fw_serializers import ENCODING_PARAMS
 from fireworks.utilities.dict_mods import get_nested_dict_value, set_nested_dict_value
 from fireworks.core.firework import FWAction, FiretaskBase, Firework, Workflow
 
-from imteksimfw.fireworks.utilities.logging import LoggingContext, _log_nested_dict
-from imteksimfw.fireworks.utilities.dict import dict_merge, from_fw_spec, apply_mod_spec
+from imteksimfw.utils.logging import LoggingContext, _log_nested_dict
+from imteksimfw.utils.dict import dict_merge, from_fw_spec, apply_mod_spec
 
 
 __author__ = 'Johannes Laurin Hoermann'
@@ -218,7 +218,7 @@ class RecoverTask(FiretaskBase):
         - output (str): spec key that will be used to pass output to child
             fireworks. Default: None
         - dict_mod (str, default: '_set'): how to insert output into output
-            key, see fireworks.utilities.dict_mods
+            key, see fireworks.utils.dict_mods
         - propagate (bool, default: None): if True, then set the
             FWAction 'propagate' flag and propagate updated fw_spec not only to
             direct children, but to all descendants down to wokflow's leaves.

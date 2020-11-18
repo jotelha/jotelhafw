@@ -32,7 +32,6 @@ from contextlib import ExitStack
 import io
 import logging
 import os.path
-import paramiko
 import select
 import socket
 import threading
@@ -45,12 +44,12 @@ except ImportError:
 import paramiko
 
 from fireworks.fw_config import FW_LOGGING_FORMAT
-from fireworks.core.firework import FiretaskBase, FWAction
+from fireworks.core.firework import FWAction
 from fireworks.utilities.dict_mods import get_nested_dict_value
 from fireworks.utilities.fw_serializers import ENCODING_PARAMS
 
-from imteksimfw.fireworks.utilities.multiprocessing import RunAsChildProcessTask
-from imteksimfw.fireworks.utilities.logging import LoggingContext
+from imteksimfw.utils.multiprocessing import RunAsChildProcessTask
+from imteksimfw.utils.logging import LoggingContext
 
 DEFAULT_FORMATTER = logging.Formatter(FW_LOGGING_FORMAT)
 

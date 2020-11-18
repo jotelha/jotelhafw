@@ -10,7 +10,7 @@ import logging
 import os
 import pytest
 
-from imteksimfw.fireworks.utilities.logging import _log_nested_dict
+from imteksimfw.utils.logging import _log_nested_dict
 
 module_dir = os.path.abspath(os.path.dirname(__file__))
 

@@ -29,6 +29,7 @@ if __name__ == "__main__":
         name='imteksimfw',
         description='Fireworks additions',
         long_description=readme,
+        long_description_content_type="text/markdown",
         url=url,
         use_scm_version={
             "root": '.',
@@ -40,8 +41,7 @@ if __name__ == "__main__":
         python_requires='>=3.6.5',
         zip_safe=False,
         install_requires=[
-            # fwrlm
-            'ansible>=2.9.1',
+            'dill>=0.3.1.1'
             'dtoolcore>=3.17.0',
             'dtool-create>=0.23.0',
             'dtool-lookup-api>=0.1.0',
@@ -50,12 +50,8 @@ if __name__ == "__main__":
             'jinja2-time>=0.2.0',
             'monty>=4.0.2',
             'paramiko>=2.4.2',
-            'python-daemon>=2.2.4',
-            'pid>=3.0.0',
-            'psutil>=5.6.1',
             'six>=1.15.0',
             'ruamel.yaml>=0.16.12',
-            'tabulate>=0.8.2',
         ],
         setup_requires=['setuptools_scm', 'pytest-runner'],
         tests_require=['pytest'],

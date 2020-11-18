@@ -1,6 +1,6 @@
 # coding: utf-8
 #
-# environ.py
+# logging.py
 #
 # Copyright (C) 2020 IMTEK Simulation
 # Author: Johannes Hoermann, johannes.hoermann@imtek.uni-freiburg.de
@@ -22,39 +22,40 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-"""Temporary OS environ context manager."""
+"""Logging utils."""
 
+import json
 import logging
-import os
-
-from imteksimfw.fireworks.utilities.logging import _log_nested_dict
 
 
-class TemporaryOSEnviron:
-    """Preserve original os.environ context manager."""
+def _log_nested_dict(log_func, dct):
+    for l in json.dumps(dct, indent=2, default=str).splitlines():
+        log_func(l)
 
-    def __init__(self, env=None):
-        """env is a flat dict to be inserted into os.environ."""
-        self._insertions = env
+class LoggingContext():
+    """Modifies logging within context."""
+    def __init__(self, logger=None, handler=None, level=None, close=False):
+        self.logger = logger
+        self.level = level
+        self.handler = handler
+        self.close = close
 
     def __enter__(self):
-        """Store backup of current os.environ."""
-        logger = logging.getLogger(__name__)
-        logger.debug("Backed-up os.environ:")
-        _log_nested_dict(logger.debug, os.environ)
-        self._original_environ = os.environ.copy()
+        """Prepare log output streams."""
+        if self.logger is None:
+            # temporarily modify root logger
+            self.logger = logging.getLogger('')
+        if self.level is not None:
+            self.old_level = self.logger.level
+            self.logger.setLevel(self.level)
+        if self.handler:
+            self.logger.addHandler(self.handler)
 
-        if self._insertions:
-            for k, v in self._insertions.items():
-                logger.debug("Inject env var '{}' = '{}'".format(k, v))
-                os.environ[k] = str(v)
-
-        logger.debug("Initial modified os.environ:")
-        _log_nested_dict(logger.debug, os.environ)
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Restore backed up os.environ."""
-        logger = logging.getLogger(__name__)
-        os.environ = self._original_environ
-        logger.debug("Recovered os.environ:")
-        _log_nested_dict(logger.debug, os.environ)
+    def __exit__(self, et, ev, tb):
+        if self.level is not None:
+            self.logger.setLevel(self.old_level)
+        if self.handler:
+            self.logger.removeHandler(self.handler)
+        if self.handler and self.close:
+            self.handler.close()
+        # implicit return of None => don't swallow exceptions

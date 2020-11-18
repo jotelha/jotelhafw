@@ -10,7 +10,7 @@ __date__ = 'Nov 05, 2020'
 import logging
 import pytest
 
-from imteksimfw.fireworks.utilities.logging import _log_nested_dict
+from imteksimfw.utils.logging import _log_nested_dict
 
 from imteksimfw.fireworks.user_objects.firetasks.dtool_lookup_tasks import QueryDtoolTask
 
