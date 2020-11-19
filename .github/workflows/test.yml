@@ -4,7 +4,7 @@ on: [push]
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     strategy:
       fail-fast: false
       matrix:
@@ -96,7 +96,7 @@ jobs:
       run: |
         
         cd dtool-lookup-server-container-composition
-        podman-compose up -d --no-build  # will pull missing images with build command in compose file
+        podman-compose up -p dtool-lookup-server-container-composition -d --no-build  # will pull missing images with build command in compose file
         cd ..
 
         sleep 30
