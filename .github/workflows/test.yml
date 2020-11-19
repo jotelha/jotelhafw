@@ -56,8 +56,8 @@ jobs:
         path: ${{ steps.install-podman-extras.outputs.podman_graph_root }}/vfs-images
         key: podman-graph-root-vfs-images-${{ runner.os }}-dls-${{ matrix.dtool-lookup-server-container-composition-version }}-py-${{ matrix.python-version }}-fw-${{ matrix.fireworks-version }}
         restore-keys: |
-          podman-graph-root-vfs-images-${{ runner.os }}-dls-${{ matrix.dtool-lookup-server-container-composition-version }}-py-${{ matrix.python-version }}-fw-${{ fmatrix.ireworks-version }}
-          podman-graph-root-vfs-images-${{ runner.os }}-dls-${{ matrix.dtool-lookup-server-container-composition-version }}-py-${{ python-version }}-
+          podman-graph-root-vfs-images-${{ runner.os }}-dls-${{ matrix.dtool-lookup-server-container-composition-version }}-py-${{ matrix.python-version }}-fw-${{ matrix.ireworks-version }}
+          podman-graph-root-vfs-images-${{ runner.os }}-dls-${{ matrix.dtool-lookup-server-container-composition-version }}-py-${{ matrix.python-version }}-
           podman-graph-root-vfs-images-${{ runner.os }}-dls-${{ matrix.dtool-lookup-server-container-composition-version }}-
 
     - name: Pull container images and prepare composition
