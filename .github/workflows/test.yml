@@ -9,18 +9,18 @@ jobs:
       fail-fast: false
       matrix:
         python-version: [3.6, 3.7, 3.8]
-        dtool-lookup-server-version: [0.15.0]
+        dtool-lookup-server-container-composition-version: [0.1.0]
         fireworks-version: [1.9.6]
 
     steps:
     - name: Git checkout this
       uses: actions/checkout@v2
 
-    - name: Git checkout dtool-lookup-server-container-composition dls-v${{ matrix.dtool-lookup-server-version }}
+    - name: Git checkout dtool-lookup-server-container-composition ${{ matrix.dtool-lookup-server-container-composition-version }}
       uses: actions/checkout@v2
       with:
         repository: jotelha/dtool-lookup-server-container-composition
-        ref: dls-v${{ matrix.dtool-lookup-server-version }}
+        ref: ${{ matrix.dtool-lookup-server-container-composition-version }}
         path: dtool-lookup-server-container-composition
 
     - name: Set up Python ${{ matrix.python-version }}
