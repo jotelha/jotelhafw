@@ -9,7 +9,7 @@ jobs:
       fail-fast: false
       matrix:
         python-version: [3.6, 3.7, 3.8]
-        dtool-lookup-server-container-composition-version: [0.1.1]
+        dtool-lookup-server-container-composition-version: [0.1.2]
         fireworks-version: [1.9.6]
 
     steps:
@@ -96,11 +96,12 @@ jobs:
       run: |
         
         cd dtool-lookup-server-container-composition
-        podman-compose up -p dtool-lookup-server-container-composition -d --no-build  # will pull missing images with build command in compose file
+        podman-compose -p dtool-lookup-server-container-composition up -d --no-build  # will pull missing images with build command in compose file
         cd ..
 
         sleep 30
         podman run -it --pod dtool-lookup-server-container-composition jotelha/dtool-lookup-client dtool ls smb://test-share
+        podman run -it --pod dtool-lookup-server-container-composition jotelha/dtool-lookup-client dtool query '{}'
 
         sleep 10
         pytest --log-level DEBUG --deselect=dtool-lookup-server-container-composition
