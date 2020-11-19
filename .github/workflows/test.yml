@@ -53,10 +53,12 @@ jobs:
       id: cache-container-images 
       uses: actions/cache@v2
       with:
-        path: ${{ steps.install-podman-extras.outputs.podman_graph_root }}
-        key: ${{ runner.os }}-podman-graph-root
+        path: ${{ steps.install-podman-extras.outputs.podman_graph_root }}/vfs-images
+        key: podman-graph-root-vfs-images-${{ runner.os }}-dls-${{ dtool-lookup-server-container-composition-version }}-py-${{ python-version }}-fw-${{ fireworks-version }}
         restore-keys: |
-          ${{ runner.os }}-podman-graph-root
+          podman-graph-root-vfs-images-${{ runner.os }}-dls-${{ dtool-lookup-server-container-composition-version }}-py-${{ python-version }}-fw-${{ fireworks-version }}
+          podman-graph-root-vfs-images-${{ runner.os }}-dls-${{ dtool-lookup-server-container-composition-version }}-py-${{ python-version }}-
+          podman-graph-root-vfs-images-${{ runner.os }}-dls-${{ dtool-lookup-server-container-composition-version }}-
 
     - name: Pull container images and prepare composition
       if: steps.cache-container-images.outputs.cache-hit != 'true'
