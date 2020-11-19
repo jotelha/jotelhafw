@@ -103,7 +103,7 @@ jobs:
         podman-compose -p dtool-lookup-server-container-composition up -d --no-build  # will pull missing images with build command in compose file
         cd ..
 
-        sleep 60
+        sleep 10
        
         echo "podman pod ls"
         podman pod ls
@@ -120,12 +120,15 @@ jobs:
         echo "dtool lookup server log"
         podman logs dtool-lookup-server-container-composition_dtool_lookup_server_1
 
-        echo "dtool lookup server log"
+        echo "dtool lookup client log"
         podman logs dtool-lookup-server-container-composition_dtool_lookup_client_1
 
         echo "dtool ls smb://test-share"
         podman run -it --pod dtool-lookup-server-container-composition jotelha/dtool-lookup-client dtool ls smb://test-share
 
+        echo "explicitly re-evoke dataset indexing"
+        podman exec -it dtool-lookup-server-container-composition_dtool_lookup_server_1 /refresh_index
+        
         echo "dtool query '{}'"
         podman run -it --pod dtool-lookup-server-container-composition jotelha/dtool-lookup-client dtool query '{}'
 
