@@ -67,12 +67,6 @@ if __name__ == "__main__":
                 'dtool-lookup-server-direct-mongo-plugin>=0.1.2',
             ],
         },
-        entry_points={
-            'console_scripts': [
-                'fwrlm = imteksimfw.fireworks.scripts.fwrlm_run:main',
-                'render = imteksimfw.fireworks.scripts.render_run:main',
-            ]
-        },
         download_url="{}/tarball/{}".format(url, version),
         license='MIT',
     )
