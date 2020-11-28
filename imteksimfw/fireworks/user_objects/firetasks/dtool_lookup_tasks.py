@@ -43,6 +43,7 @@ from fireworks.utilities.dict_mods import get_nested_dict_value
 from fireworks.utilities.fw_serializers import ENCODING_PARAMS
 
 from imteksimfw.utils.multiprocessing import RunAsChildProcessTask
+from imteksimfw.utils.dict import dict_merge
 from imteksimfw.utils.environ import TemporaryOSEnviron
 from imteksimfw.utils.logging import LoggingContext, _log_nested_dict
 
@@ -133,7 +134,7 @@ class DtoolLookupTask(RunAsChildProcessTask):
             direct children, but to all descendants down to wokflow's leaves.
         - stored_data (bool, default: False): put handled dataset properties
             into FWAction.stored_data
-        - store_stdlog (bool, default: False): insert log output into database
+        - store_stdlog (bool, default: False): insert log output into FWAction.stored_data
         - stdlog_file (str, Default: NameOfTaskClass.log): print log to file
         - loglevel (str, Default: logging.INFO): loglevel for this task
     """
@@ -209,20 +210,17 @@ class DtoolLookupTask(RunAsChildProcessTask):
 
             stack.enter_context(TemporaryOSEnviron(env=dtool_config))
 
-            r = self._run_task_internal(fw_spec)
-
-        output = {
-            'response': r
-        }
-
-        if store_stdlog:
-            stdlog_stream.flush()
-            output['stdlog'] = stdlog_stream.getvalue()
+            output = self._run_task_internal(fw_spec)
 
         fw_action = FWAction()
 
+        if stored_data or store_stdlog:
+            fw_action.stored_data = {}
+        if store_stdlog:
+            stdlog_stream.flush()
+            fw_action.stored_data['stdlog'] = stdlog_stream.getvalue()
         if stored_data:
-            fw_action.stored_data = output
+            fw_action.stored_data['output'] = output
 
         # 'propagate' only development feature for now
         if hasattr(fw_action, 'propagate') and propagate:
@@ -250,10 +248,10 @@ class QueryDtoolTask(DtoolLookupTask):
         - sort_key (str): sort key, sort by 'frozen_at' per default
         - sort_direction (int): sort direction, default 'pymongo.DESCENDING'
         - limit (int): maximum number of files to write, default: no limit
-        - fizzle_empty_result (bool): fizzle if no file found, default: True
+        - fizzle_empty_result (bool): fizzle if nothing found, default: True
         - fizzle_degenerate_dataset_name (bool): fizzle if more than one of the
           resulting datasets are named equivalently, default: False
-        - meta_file (str): default: None. If specififed, then metadata of
+        - metadata_file (str): default: None. If specififed, then metadata of
           queried files is written in .yaml or .json format, depending on the
           file name suffix.
 
@@ -270,7 +268,7 @@ class QueryDtoolTask(DtoolLookupTask):
     optional_params = [
         *DtoolLookupTask.optional_params,
         "fizzle_degenerate_dataset_name", "fizzle_empty_result",
-        "limit", "meta_file", "meta_file_suffix",
+        "limit", "metadata_file",
         "sort_direction", "sort_key"]
 
     def _run_task_internal(self, fw_spec):
@@ -308,20 +306,6 @@ class QueryDtoolTask(DtoolLookupTask):
 
         meta_file = self.get("meta_file", None)
         meta_file = from_fw_spec(meta_file, fw_spec)
-
-        # if isinstance(query, dict):
-        #     query = arrow_to_dot(query)
-        #     # convert to query string
-        #     query_str = json.dumps(query)
-        # elif isinstance(query, str):
-        #     query_str = query
-        # else:
-        #     raise ValueError(
-        #         "query type('{}') is {}, but must be either dict or str".format(
-        #             query, type(query)
-        #         ))
-
-        # logger.info("Query string: '{}'".format(query_str))
 
         r = dtool_lookup_api.query(query)
 
@@ -365,3 +349,216 @@ class QueryDtoolTask(DtoolLookupTask):
             write_serialized(r, meta_file)
 
         return r
+
+
+class ReadmeDtoolTask(DtoolLookupTask):
+    """
+    Firetask to query a dataset's README via dtool lookup server and inject
+    content into fw_spec.
+
+    Required params:
+        - uri (str): dataset URI
+
+    Optional params:
+        - dest_dir (str): destination directory, default is the current working
+            directory.
+        - fizzle_empty_result (bool): fizzle if nothing found, default: True
+        - fw_supersedes_dtool: if True, metadata from metadata_fw_source_key
+            supersedes metadata from metadata_fp_source_key. Otherwise, latter
+            supersedes former. Default: False
+        - metadata_dtool_exclusions (dict): mark exclusions from metadata forwarded
+            into pipeline with nested dict {'excluded': {'field': True}}.
+        - metadata_dtool_source_key (str): if specified, only use nested subset of
+            metadata found in README. Default: None or "" uses all.
+        - metadata_file (str): default: None. If specififed, then metadata of
+            queried files is written in .yaml or .json format, depending on the
+            file name suffix.
+        - metadata_fw_exclusions (dict): mark exclusions from
+            metadata_fw_source_key merged with metadata_fp_source_key.
+        - metadata_fw_source_key (str): merge metadata from README with
+            metadata within this fw_spec key before forwarding.
+
+    Fields 'uri', 'sort_direction', 'dest_dir', 'fizzle_empty_result',
+    'fw_supersedes_dtool', 'metadata_dtool_source_key', 'metadata_file',
+    'metadata_fw_source_key' may also be a dict of format
+    { 'key': 'some->nested->fw_spec->key' } for looking up value within
+    fw_spec instead.
+    """
+    _fw_name = 'ReadmeDatasetTask'
+    required_params = [
+        *DtoolLookupTask.required_params,
+        "uri"]
+    optional_params = [
+        *DtoolLookupTask.optional_params,
+        "fizzle_empty_result",
+        "metadata_file",
+
+        "metadata_dtool_source_key",
+        "metadata_fw_source_key",
+        "fw_supersedes_dtool",
+        "metadata_dtool_exclusions",
+        "metadata_fw_exclusions",
+    ]
+
+    def _run_task_internal(self, fw_spec):
+        import dtool_lookup_api
+        dtool_lookup_api.core.config.Config.interactive = False
+
+        logger = logging.getLogger(__name__)
+
+        uri = self.get("uri", None)
+        uri = from_fw_spec(uri, fw_spec)
+
+        dest_dir = self.get("dest_dir", os.path.abspath(os.path.curdir))
+        dest_dir = from_fw_spec(dest_dir, fw_spec)
+
+        fizzle_empty_result = self.get("fizzle_empty_result", True)
+        fizzle_empty_result = from_fw_spec(fizzle_empty_result, fw_spec)
+
+        metadata_file = self.get("metadata_file", None)
+        metadata_file = from_fw_spec(metadata_file, fw_spec)
+
+        metadata_dtool_source_key = self.get("metadata_dtool_source_key", None)
+        metadata_dtool_source_key = from_fw_spec(metadata_dtool_source_key, fw_spec)
+
+        metadata_fw_source_key = self.get("metadata_fw_source_key", None)
+        metadata_fw_source_key = from_fw_spec(metadata_fw_source_key, fw_spec)
+
+        fw_supersedes_dtool = self.get("fw_supersedes_dtool", False)
+        fw_supersedes_dtool = from_fw_spec(fw_supersedes_dtool, fw_spec)
+
+        metadata_dtool_exclusions = self.get("metadata_dtool_exclusions", {})
+        metadata_fw_exclusions = self.get("metadata_fw_exclusions", {})
+
+        readme = dtool_lookup_api.readme(uri)
+        metadata = {}
+        if isinstance(readme, str) and fizzle_empty_result:  # server error message
+            raise ValueError(readme)
+        elif isinstance(readme, str):
+            logger.warning(readme)
+        else:
+            logger.debug("Metadata of queried object:")
+            _log_nested_dict(logger.debug, readme)
+
+            if metadata_file:
+                metadata_file_path = os.path.join(dest_dir, metadata_file)
+                logger.debug("Write metadata of queried dataset to file '{}'.".format(metadata_file_path))
+                write_serialized(readme, metadata_file_path)
+
+            if metadata_dtool_source_key and metadata_dtool_source_key != "":
+                dtool_metadata = get_nested_dict_value(readme, metadata_dtool_source_key)
+                logger.debug(
+                    "Forwarding '{}' subset of README metadata:".format(metadata_dtool_source_key))
+                _log_nested_dict(logger.debug, dtool_metadata)
+            else:
+                dtool_metadata = readme
+                logger.debug("Forwarding README metadata.")
+
+            if metadata_fw_source_key and metadata_fw_source_key == "":
+                fw_metadata = fw_spec
+                logger.debug("Merging with fw_spec.")
+            elif metadata_fw_source_key:
+                fw_metadata = get_nested_dict_value(fw_spec, metadata_fw_source_key)
+                logger.debug("Merging with '{}' subset of fw_spec:".format(metadata_fw_source_key))
+                _log_nested_dict(logger.debug, fw_metadata)
+            else:
+                fw_metadata = {}
+
+            if fw_supersedes_dtool:
+                metadata = dict_merge(dtool_metadata, fw_metadata,
+                                      exclusions=metadata_dtool_exclusions,
+                                      merge_exclusions=metadata_fw_exclusions)
+            else:
+                metadata = dict_merge(fw_metadata, dtool_metadata,
+                                      exclusions=metadata_fw_exclusions,
+                                      merge_exclusions=metadata_dtool_exclusions)
+
+            logger.debug("Forwarding merge:")
+            _log_nested_dict(logger.debug, metadata)
+
+        return metadata
+
+
+class ManifestDtoolTask(DtoolLookupTask):
+    """
+    Firetask to query a dataset's manifest via dtool lookup server. A manifest may look like this:
+
+        {
+            'dtoolcore_version': '3.17.0',
+            'hash_function': 'md5sum_hexdigest',
+            'items': {
+                '0a03867efe1eb36d257d4cecf598019963a1f14d': {
+                    'hash': '442170a2fd3fa9a54a711ffa1b249e43',
+                    'relpath': 'surfactant_head_surfactant_head_rdf.txt',
+                    'size_in_bytes': 115098,
+                    'utc_timestamp': 1600729024.880694},
+                '0b6c156fb7e71a1387904cc6d918cb9acf286538': {
+                    'hash': 'bf9cb747ae826511958790034e62d773',
+                    'relpath': 'counterion_counterion_rdf.txt',
+                    'size_in_bytes': 115098,
+                    'utc_timestamp': 1600729024.979725
+                },
+                ...
+            }
+        }
+
+    Required params:
+        - uri (str): dataset URI
+
+    Optional params:
+        - dest_dir (str): destination directory, default is the current working
+            directory.
+        - fizzle_empty_result (bool): fizzle if nothing found, default: True
+        - manifest_file (str): default: None. If specififed, then manifest of
+            dataset is written in .yaml or .json format, depending on the
+            file name suffix.
+
+        Fields 'uri', 'dest_dir', 'manifest_file',
+        may also be a dict of format { 'key': 'some->nested->fw_spec->key' }
+        for looking up value within fw_spec instead.
+    """
+    _fw_name = 'ReadmeDatasetTask'
+    required_params = [
+        *DtoolLookupTask.required_params,
+        "uri"]
+    optional_params = [
+        *DtoolLookupTask.optional_params,
+        "dest_dir",
+        "fizzle_empty_result",
+        "manifest_file",
+    ]
+
+    def _run_task_internal(self, fw_spec):
+        import dtool_lookup_api
+        dtool_lookup_api.core.config.Config.interactive = False
+
+        logger = logging.getLogger(__name__)
+
+        uri = self.get("uri", None)
+        uri = from_fw_spec(uri, fw_spec)
+
+        dest_dir = self.get("dest_dir", os.path.abspath(os.path.curdir))
+        dest_dir = from_fw_spec(dest_dir, fw_spec)
+
+        fizzle_empty_result = self.get("fizzle_empty_result", True)
+        fizzle_empty_result = from_fw_spec(fizzle_empty_result, fw_spec)
+
+        manifest_file = self.get("manifest_file", None)
+        manifest_file = from_fw_spec(manifest_file, fw_spec)
+
+        manifest = dtool_lookup_api.manifest(uri)
+        if isinstance(manifest, str) and fizzle_empty_result:  # server error message
+            raise ValueError(manifest)
+        elif isinstance(manifest, str):
+            logger.warning(manifest)
+            manifest = None
+        else:  # success
+            logger.debug("Manifest of queried dataset:")
+            _log_nested_dict(logger.debug, manifest)
+
+            if manifest_file:
+                manifest_file_path = os.path.join(dest_dir, manifest_file)
+                logger.debug("Writing manifest of queried dataset to '{}'.".format(manifest_file_path))
+                write_serialized(manifest, manifest_file_path)
+
+        return manifest
