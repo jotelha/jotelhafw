@@ -1,5 +1,8 @@
 # IMTEK-Simulation custom FireWorks extensions
 
+![PyPI](https://img.shields.io/pypi/v/imteksimfw) ![https://github.com/IMTEK-Simulation/imteksimfw/actions?query=workflow%3Atest](https://img.shields.io/github/workflow/status/IMTEK-Simulation/imteksimfw/test?label=tests) 
+
+
 Johannes Hörmann, johannes.hoermann@imtek.uni-freiburg.de, Mar 2020
 
 # Quick start
