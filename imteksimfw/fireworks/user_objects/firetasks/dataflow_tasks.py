@@ -91,7 +91,7 @@ class DataflowTask(RunAsChildProcessTask):
         "dtool_config",
         "dtool_config_key",
         "stored_data",
-        "output",
+        "output_key",
         "dict_mod",
         "propagate",
         "stdlog_file",
@@ -196,8 +196,6 @@ class SearchDictTask(DataflowTask):
             comparison with boolean values. If None (default), then compare everything.
         - marker_key (str):  if specified, then supersedes 'marker' by entry in fw_spec this key points to.
             One of 'marker' and 'marker_key' must be specified.
-        - output_key (str): spec key that will be used to pass the matching key or index or
-            a list of matching keys or indices to child fireworks. Default: None
         - limit (int): limit the number of results. If None, then no limit (default).
         - expand (bool): will replace list result with single value result if list result only contains one entry and
             with None if list result is empty. Default: False.
@@ -214,7 +212,10 @@ class SearchDictTask(DataflowTask):
         "search",  # entry to search for
         "search_key",
         "marker",  # marker must mimic structure of entries in input and mark fields for comparison with boolean values.
-        "marker_key"]
+        "marker_key",
+        "limit",
+        "expand",
+    ]
 
     def _run_task_internal(self, fw_spec):
         logger = logging.getLogger(__name__)
