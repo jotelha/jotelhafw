@@ -239,12 +239,13 @@ class QueryDtoolTask(DtoolLookupTask):
     them to specified directory (current working directory if not specified).
 
     Required params:
+
+    Optional params:
         - query (dict): mongo db query identifying files to fetch.
           Same as within fireworks.utils.dict_mods, use '->' in dict keys
           for querying nested documents, instead of MongoDB '.' (dot) seperator.
           Do use '.' and NOT '->' within the 'sort_key' field.
-
-    Optional params:
+        - query_key (str): entry in fw_spec this key points to supersedes 'query' if specified
         - sort_key (str): sort key, sort by 'frozen_at' per default
         - sort_direction (int): sort direction, default 'pymongo.DESCENDING'
         - limit (int): maximum number of files to write, default: no limit
@@ -254,9 +255,12 @@ class QueryDtoolTask(DtoolLookupTask):
         - metadata_file (str): default: None. If specififed, then metadata of
           queried files is written in .yaml or .json format, depending on the
           file name suffix.
+        - expand (bool): will replace list result with single value result if
+          list result only contains one entry and with None if list result is empty.
+          Default: False.
 
     Fields 'sort_key', 'sort_direction', 'limit', 'fizzle_empty_result',
-    'fizzle_degenerate_dataset_name', 'meta_file' may also be a dict of format
+    'fizzle_degenerate_dataset_name', 'meta_file', 'expand', may also be a dict of format
     { 'key': 'some->nested->fw_spec->key' } for looking up value within
     fw_spec instead.
     """
@@ -264,12 +268,13 @@ class QueryDtoolTask(DtoolLookupTask):
     _fw_name = 'QueryDatasetTask'
     required_params = [
         *DtoolLookupTask.required_params,
-        "query"]
+    ]
     optional_params = [
         *DtoolLookupTask.optional_params,
+        "query", "query_key",
         "fizzle_degenerate_dataset_name", "fizzle_empty_result",
         "limit", "metadata_file",
-        "sort_direction", "sort_key"]
+        "sort_direction", "sort_key", "expand"]
 
     def _run_task_internal(self, fw_spec):
         import dtool_lookup_api
@@ -278,7 +283,7 @@ class QueryDtoolTask(DtoolLookupTask):
         logger = logging.getLogger(__name__)
 
         query = self.get("query", {})
-        query = from_fw_spec(query, fw_spec)
+        query_key = self.get("query_key", None)
 
         sort_key = self.get("sort_key", 'frozen_at')
         sort_key = from_fw_spec(sort_key, fw_spec)
@@ -306,6 +311,17 @@ class QueryDtoolTask(DtoolLookupTask):
 
         meta_file = self.get("meta_file", None)
         meta_file = from_fw_spec(meta_file, fw_spec)
+
+        expand = self.get('expand', None)
+        expand = from_fw_spec(expand, fw_spec)
+
+        if query_key:
+            logger.debug("query from fw_spec at '%s'." % query_key)
+            query = get_nested_dict_value(fw_spec, query_key)
+        elif input:
+            pass
+        else:
+            raise ValueError("Neither 'query' nor 'query_key' specified.")
 
         r = dtool_lookup_api.query(query)
 
@@ -343,6 +359,13 @@ class QueryDtoolTask(DtoolLookupTask):
                         dataset_name, i, len(r), query))
 
             unique_dataset_names.add(dataset_name)
+
+        if expand and len(r) == 1:
+            r = r[0]
+            logger.debug("Expand single-entry result'%s'." % r)
+        elif expand and len(r) == 0:
+            r = None
+            logger.debug("Expand empty result as None.")
 
         if meta_file:
             logger.debug("Write response to file '{}'.".format(meta_file))
@@ -517,7 +540,7 @@ class ManifestDtoolTask(DtoolLookupTask):
         may also be a dict of format { 'key': 'some->nested->fw_spec->key' }
         for looking up value within fw_spec instead.
     """
-    _fw_name = 'ReadmeDatasetTask'
+    _fw_name = 'ManifestDatasetTask'
     required_params = [
         *DtoolLookupTask.required_params,
         "uri"]

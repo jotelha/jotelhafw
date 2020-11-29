@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import pytest
+import tempfile
 
 from imteksimfw.utils.logging import _log_nested_dict
 
@@ -55,3 +56,18 @@ def dtool_config(files):
     _log_nested_dict(logger.debug, dtool_config)
 
     return dtool_config
+
+
+@pytest.fixture
+def tempdir(request):
+    """Provide clean temporary directory."""
+    tmpdir = tempfile.TemporaryDirectory()
+    previous_working_directory = os.getcwd()
+    os.chdir(tmpdir.name)
+
+    def finalizer():
+        os.chdir(previous_working_directory)
+        tmpdir.cleanup()
+
+    request.addfinalizer(finalizer)
+    return

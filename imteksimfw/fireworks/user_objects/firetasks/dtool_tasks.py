@@ -34,6 +34,7 @@ import glob
 import io
 import logging
 import os
+import shutil
 import uuid
 
 from ruamel.yaml import YAML
@@ -627,7 +628,7 @@ class FreezeDatasetTask(DtoolTask):
     """
     A Firetask to freeze a dtool data set.
 
-    This tast extends the basic DtoolTask parameters by
+    This task extends the basic DtoolTask parameters by
 
     Required params:
         None
@@ -689,7 +690,7 @@ class FreezeDatasetTask(DtoolTask):
 class CopyDatasetTask(DtoolTask):
     """Copy a dtool data set from source to target.
 
-    This tast extends the basic DtoolTask parameters by
+    This task extends the basic DtoolTask parameters by
 
     Required params:
         - target (str): base URI of target
@@ -763,3 +764,63 @@ class CopyDatasetTask(DtoolTask):
         target_dataset = dtoolcore.DataSet.from_uri(target_uri)
 
         return target_dataset
+
+
+class FetchItemTask(DtoolTask):
+    """Fetch a specific item from source dataset to local path.
+
+    This task extends the basic DtoolTask parameters by
+
+    Required params:
+        - item_id (str): id of desired item
+
+    Optional params:
+        - source (str): URI of source dataset, default: "dataset".
+        - dest_dir (str): local destination directory of item. Default: current directory.
+        - filename (str)L local filename of item. Default: as returned by dtool
+
+    Fields 'item_id', 'source', 'dest_dir', 'filename' may also be a dict of format
+    { 'key': 'some->nested->fw_spec->key' } for looking up value within
+    fw_spec instead.
+    """
+
+    _fw_name = 'FetchItemTask'
+    required_params = [
+        *DtoolTask.required_params,
+        "item_id"]
+    optional_params = [
+        *DtoolTask.optional_params,
+        "source",
+        "dest_dir",
+        "filename"]
+
+    def _run_task_internal(self, fw_spec):
+        logger = logging.getLogger(__name__)
+
+        item_id = self.get("item_id", None)
+        item_id = from_fw_spec(item_id, fw_spec)
+
+        source = self.get("source", "dataset")
+        source = from_fw_spec(source, fw_spec)
+
+        dest_dir = self.get("dest_dir", os.path.abspath(os.path.curdir))
+        dest_dir = from_fw_spec(dest_dir, fw_spec)
+
+        filename = self.get("filename", None)
+        filename = from_fw_spec(filename, fw_spec)
+
+        src_dataset = dtoolcore.DataSet.from_uri(source)
+        local_path = src_dataset.item_content_abspath(item_id)
+
+        logger.debug("Local path of '%s' in '%s': %s" % (item_id, source, local_path))
+
+        if filename is None:
+            filename = os.path.basename(local_path)
+            logger.debug("No explicit filename specified, using '%s'." % filename)
+
+        dest = os.path.join(dest_dir, filename)
+
+        logger.info("Copy from '%s' to '%s'" % (local_path, dest))
+        shutil.copy(local_path, dest)
+
+        return src_dataset

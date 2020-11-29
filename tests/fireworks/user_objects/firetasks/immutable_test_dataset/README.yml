@@ -1,0 +1,14 @@
+---
+project: testing project
+description: testing description
+owners:
+  - name: Testing User
+    email: testing@test.edu
+    username: testing_user
+    orcid: testing_orcid
+funders:
+  - organization: testing_organization
+    program: testing_program
+    code: testing_code
+creation_date: 2020-11-08
+expiration_date: 2022-11-08

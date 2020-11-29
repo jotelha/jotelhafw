@@ -5,11 +5,11 @@ __copyright__ = 'Copyright 2020, IMTEK Simulation, University of Freiburg'
 __email__ = 'johannes.hoermann@imtek.uni-freiburg.de, johannes.laurin@gmail.com'
 __date__ = 'Apr 27, 2020'
 
+import glob
 import json
 import logging
 import os
 import pytest
-import tempfile
 import ruamel.yaml as yaml
 
 # needs dtool cli for verification
@@ -19,9 +19,9 @@ import dtoolcore
 from imteksimfw.utils.environ import TemporaryOSEnviron
 from imteksimfw.utils.logging import _log_nested_dict
 from imteksimfw.fireworks.user_objects.firetasks.dtool_tasks import (
-    CreateDatasetTask, FreezeDatasetTask, CopyDatasetTask)
+    CreateDatasetTask, FreezeDatasetTask, CopyDatasetTask, FetchItemTask)
 
-module_dir = os.path.abspath(os.path.dirname(__file__))
+FIXTURE_DIR = os.path.abspath(os.path.dirname(__file__))
 
 DATASET_NAME = 'dataset'
 
@@ -223,18 +223,15 @@ def default_copy_dataset_task_spec(dtool_config):
 
 
 @pytest.fixture
-def tempdir(request):
-    """Provide clean temporary directory."""
-    tmpdir = tempfile.TemporaryDirectory()
-    previous_working_directory = os.getcwd()
-    os.chdir(tmpdir.name)
-
-    def finalizer():
-        os.chdir(previous_working_directory)
-        tmpdir.cleanup()
-
-    request.addfinalizer(finalizer)
-    return
+def default_fetch_item_task_spec(dtool_config):
+    """Provide default test task_spec for CopyDatasetTask."""
+    return {
+        'source': os.path.join(FIXTURE_DIR, 'immutable_test_dataset'),
+        'item_id': 'eb58eb70ebcddf630feeea28834f5256c207edfd',
+        'filename': 'fetched_item.txt',
+        'dtool_config': dtool_config,
+        'stored_data': True,
+    }
 
 
 def _create_dataset(tempdir, files, dtool_config,
@@ -945,3 +942,34 @@ def test_copy_dataset_task_to_smb_share(tempdir, files, dtool_config,
     assert ret
 
     return target_uri
+
+
+def test_fetch_item_task(tempdir, files, dtool_config,
+                         default_fetch_item_task_spec):
+    logger = logging.getLogger(__name__)
+
+    # create a dummy dataset locally for extracting item
+    # _create_dataset(tempdir, files, dtool_config,
+    #                default_create_dataset_task_spec,
+    #                default_freeze_dataset_task_spec)
+
+
+    logger.debug("Instantiate FetchItemTask.")
+    t = FetchItemTask(**default_fetch_item_task_spec)
+
+    fw_action = t.run_task({})
+    logger.debug("FWAction:")
+    _log_nested_dict(logger.debug, fw_action.as_dict())
+    source_uri = fw_action.stored_data['uri']
+    with TemporaryOSEnviron(dtool_config):
+        ret = verify(True, source_uri)
+    assert ret
+
+    local_item_files = glob.glob('*.txt')
+    assert len(local_item_files)  == 1
+    assert local_item_files[0] == 'fetched_item.txt'
+    with open('fetched_item.txt', 'r') as f:
+        content = f.read ()
+    assert content == 'Some test content'
+
+    return source_uri
