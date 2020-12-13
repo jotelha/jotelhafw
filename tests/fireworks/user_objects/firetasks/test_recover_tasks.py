@@ -1305,6 +1305,24 @@ class RecoverTasksTest(unittest.TestCase):
                 },
                 "top-level-key-to-exclude": True,
             },
+            'restart_fw_spec_to_exclude': {
+                "top-level-key-to-include": {
+                    "nested-level-key-to-exclude": True,
+                },
+                "top-level-key-to-exclude": True,
+            },
+            'addition_fw_spec_to_exclude': {
+                "top-level-key-to-include": {
+                    "nested-level-key-to-exclude": True,
+                },
+                "top-level-key-to-exclude": True,
+            },
+            'detour_fw_spec_to_exclude': {
+                "top-level-key-to-include": {
+                    "nested-level-key-to-exclude": True,
+                },
+                "top-level-key-to-exclude": True,
+            },
             "superpose_restart_on_parent_fw_spec": True,
             "superpose_addition_on_parent_fw_spec": True,
             "superpose_detour_on_parent_fw_spec": True,
