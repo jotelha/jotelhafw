@@ -174,7 +174,7 @@ class RecoverTask(FiretaskBase):
             of this task's FireWork. Default: True.
         - apply_mod_spec_to_detour_wf (bool): Apply FWAction's update_spec and
             mod_spec to 'detour_wf', 'restart_wf', and the next instance of
-            'recover_fw', same as for all other regular childern of this task's
+            'recover_fw', same as for all other regular children of this task's
             FireWork. Default: True.
         - fizzle_on_no_restart_file (bool): Default: True
         - fw_spec_to_exclude ([str]): recover FireWork will inherit the current
@@ -213,7 +213,33 @@ class RecoverTask(FiretaskBase):
             Try to pull (fizzled) parent's fw_spec and merge with fw_spec of
             all FireWorks within detour_wf, with latter enjoying precedence.
             Default: False.
-            For above's superpose oprions, fw_spec_to_exclude applies as well.
+        - restart_fw_spec_to_exclude ([str]):
+        - addition_fw_spec_to_exclude ([str]):
+        - detour_fw_spec_to_exclude ([str]):
+            When any of the above superpose flags is set, the top-level fw_spec
+            fields specified here won't enter the created additions.
+            Default for all three are all reserved fields, i.e. [
+                '_add_fworker',
+                '_add_launchpad_and_fw_id',
+                '_allow_fizzled_parents',
+                '_background_tasks',
+                '_category',
+                '_dupefinder',
+                '_files_in',
+                '_files_out',
+                '_files_prev',
+                '_fizzled_parents',
+                '_fw_env',
+                '_fworker',
+                '_job_info',
+                '_launch_dir',
+                '_pass_job_info',
+                '_preserve_fworker',
+                '_priority',
+                '_queueadapter',
+                '_tasks',
+                '_trackers',
+            ]
 
         - output (str): spec key that will be used to pass output to child
             fireworks. Default: None
@@ -235,28 +261,27 @@ class RecoverTask(FiretaskBase):
     may also be a dict of format { 'key': 'some->nested->fw_spec->key' } for
     looking up value within 'fw_spec' instead.
 
-    NOTE: reserved fw_spec keywords are
-        - all reserved keywords:
-        - _tasks
-        - _priority
-        - _pass_job_info
-        - _launch_dir
-        - _fworker
-        - _category
-        - _queueadapter
+    NOTE: reserved fw_spec keywords are (alphabetically)
         - _add_fworker
         - _add_launchpad_and_fw_id
-        - _dupefinder
         - _allow_fizzled_parents
-        - _preserve_fworker
-        - _job_info
-        - _fizzled_parents
-        - _trackers
         - _background_tasks
-        - _fw_env
+        - _category
+        - _dupefinder
         - _files_in
         - _files_out
         - _files_prev
+        - _fizzled_parents
+        - _fw_env
+        - _fworker
+        - _job_info
+        - _launch_dir
+        - _pass_job_info
+        - _preserve_fworker
+        - _priority
+        - _queueadapter
+        - _tasks
+        - _trackers
     """
     _fw_name = "RecoverTask"
     required_params = [
@@ -287,6 +312,9 @@ class RecoverTask(FiretaskBase):
         "superpose_restart_on_parent_fw_spec",
         "superpose_addition_on_parent_fw_spec",
         "superpose_detour_on_parent_fw_spec",
+        "restart_fw_spec_to_exclude",
+        "addition_fw_spec_to_exclude",
+        "detour_fw_spec_to_exclude",
 
         "stored_data",
         "output",
@@ -488,6 +516,46 @@ class RecoverTask(FiretaskBase):
             fw_spec_to_exclude_dict = {k: True for k in fw_spec_to_exclude}
         else:  # supposed to be dict then
             fw_spec_to_exclude_dict = fw_spec_to_exclude
+
+        default_fw_spec_to_exclude = [
+            '_add_fworker',
+            '_add_launchpad_and_fw_id',
+            '_allow_fizzled_parents',
+            '_background_tasks',
+            '_category',
+            '_dupefinder',
+            '_files_in',
+            '_files_out',
+            '_files_prev',
+            '_fizzled_parents',
+            '_fw_env',
+            '_fworker',
+            '_job_info',
+            '_launch_dir',
+            '_pass_job_info',
+            '_preserve_fworker',
+            '_priority',
+            '_queueadapter',
+            '_tasks',
+            '_trackers',
+        ]
+        restart_fw_spec_to_exclude = self.get('restart_fw_spec_to_exclude', default_fw_spec_to_exclude)
+        if isinstance(restart_fw_spec_to_exclude, list):
+            restart_fw_spec_to_exclude_dict = {k: True for k in restart_fw_spec_to_exclude}
+        else:  # supposed to be dict then
+            restart_fw_spec_to_exclude_dict = restart_fw_spec_to_exclude
+
+        addition_fw_spec_to_exclude = self.get('addition_fw_spec_to_exclude', default_fw_spec_to_exclude)
+        if isinstance(addition_fw_spec_to_exclude, list):
+            addition_fw_spec_to_exclude_dict = {k: True for k in addition_fw_spec_to_exclude}
+        else:  # supposed to be dict then
+            addition_fw_spec_to_exclude_dict = addition_fw_spec_to_exclude
+
+        detour_fw_spec_to_exclude = self.get('detour_fw_spec_to_exclude', default_fw_spec_to_exclude)
+        if isinstance(detour_fw_spec_to_exclude, list):
+            detour_fw_spec_to_exclude_dict = {k: True for k in detour_fw_spec_to_exclude}
+        else:  # supposed to be dict then
+            detour_fw_spec_to_exclude_dict = detour_fw_spec_to_exclude
 
         # generic parameters
         stored_data = self.get('stored_data', False)
@@ -706,7 +774,7 @@ class RecoverTask(FiretaskBase):
                                        "fw_spec recovered.")
                 detour_wf, detour_wf_fw_id_mapping = self.appendable_wf_from_dict(
                     detour_wf_dict, base_spec=detour_wf_base_spec,
-                    exclusions=fw_spec_to_exclude_dict)
+                    exclusions=detour_fw_spec_to_exclude_dict)
 
                 if detour_fws_root is None:  # default, as in core fireworks
                     mapped_detour_fws_root.extend(detour_wf.root_fw_ids)
@@ -781,7 +849,7 @@ class RecoverTask(FiretaskBase):
                                            "fw_spec recovered.")
                     restart_wf, restart_wf_fw_id_mapping = self.appendable_wf_from_dict(
                         restart_wf_dict, base_spec=restart_wf_base_spec,
-                        exclusions=fw_spec_to_exclude_dict)
+                        exclusions=restart_fw_spec_to_exclude_dict)
 
                     if restart_fws_root is None:  # default, as in core fireworks
                         mapped_detour_fws_root.extend(restart_wf.root_fw_ids)
@@ -903,7 +971,7 @@ class RecoverTask(FiretaskBase):
                                        "fw_spec recovered.")
                 addition_wf, addition_wf_fw_id_mapping = self.appendable_wf_from_dict(
                     addition_wf_dict, base_spec=addition_wf_base_spec,
-                    exclusions=fw_spec_to_exclude_dict)
+                    exclusions=addition_fw_spec_to_exclude_dict)
 
                 if addition_fws_root is None:
                     mapped_addition_fws_root.extend(addition_wf.root_fw_ids)
