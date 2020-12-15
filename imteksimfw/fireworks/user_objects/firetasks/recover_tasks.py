@@ -765,7 +765,7 @@ class RecoverTask(FiretaskBase):
             if isinstance(detour_wf_dict, dict):
                 detour_wf_base_spec = None
                 if superpose_detour_on_parent_fw_spec:
-                    if "spec" in prev_job_info:
+                    if prev_job_info and ("spec" in prev_job_info):
                         detour_wf_base_spec = prev_job_info["spec"]
                     else:
                         logger.warning("Superposition of detour_wf's "
@@ -840,7 +840,7 @@ class RecoverTask(FiretaskBase):
 
                     restart_wf_base_spec = None
                     if superpose_restart_on_parent_fw_spec:
-                        if "spec" in prev_job_info:
+                        if prev_job_info and ("spec" in prev_job_info):
                             restart_wf_base_spec = prev_job_info["spec"]
                         else:
                             logger.warning("Superposition of restart_wf's "
@@ -962,7 +962,7 @@ class RecoverTask(FiretaskBase):
             if isinstance(addition_wf_dict, dict):
                 addition_wf_base_spec = None
                 if superpose_addition_on_parent_fw_spec:
-                    if "spec" in prev_job_info:
+                    if prev_job_info and ("spec" in prev_job_info):
                         addition_wf_base_spec = prev_job_info["spec"]
                     else:
                         logger.warning("Superposition of addition_wf's "
