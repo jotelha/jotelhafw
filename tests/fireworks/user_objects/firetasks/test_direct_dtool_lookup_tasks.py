@@ -4,7 +4,7 @@
 __author__ = 'Johannes Laurin Hoermann'
 __copyright__ = 'Copyright 2020, IMTEK Simulation, University of Freiburg'
 __email__ = 'johannes.hoermann@imtek.uni-freiburg.de, johannes.laurin@gmail.com'
-__date__ = 'Nov 05, 2020'
+__date__ = 'Jan 18, 2021'
 
 import glob
 import json
@@ -18,24 +18,10 @@ from imteksimfw.utils.logging import _log_nested_dict
 from imteksimfw.fireworks.user_objects.firetasks.dataflow_tasks import SearchDictTask
 from imteksimfw.fireworks.user_objects.firetasks.dtool_tasks import FetchItemTask
 from imteksimfw.fireworks.user_objects.firetasks.dtool_lookup_tasks import (
-    QueryDtoolTask, ReadmeDtoolTask, ManifestDtoolTask)
-from imteksimfw.fireworks.user_objects.firetasks.cmd_tasks import EvalPyEnvTask
+    DirectReadmeTask, DirectManifestTask)
 from imteksimfw.utils.dict import compare, _make_marker
 
 # from test_dtool_tasks import _compare
-
-
-@pytest.fixture
-def dtool_lookup_config(dtool_config):
-    """Provide default dtool lookup config."""
-    dtool_config.update({
-        "DTOOL_LOOKUP_SERVER_URL": "https://localhost:5000",
-        "DTOOL_LOOKUP_SERVER_TOKEN_GENERATOR_URL": "http://localhost:5001/token",
-        "DTOOL_LOOKUP_SERVER_USERNAME": "testuser",
-        "DTOOL_LOOKUP_SERVER_PASSWORD": "test_password",
-        "DTOOL_LOOKUP_SERVER_VERIFY_SSL": False,
-    })
-    return dtool_config
 
 
 @pytest.fixture
@@ -54,24 +40,10 @@ def dtool_smb_config(dtool_config):
 
 
 @pytest.fixture
-def default_query_dtool_task_spec(dtool_lookup_config):
-    """Provide default test task_spec for QueryDtoolTask."""
-    return {
-        'dtool_config': dtool_lookup_config,
-        'stored_data': True,
-        'query': {
-            'base_uri': 'smb://test-share',
-            'name': {'$regex': 'test'},
-        },
-        'loglevel': logging.DEBUG,
-    }
-
-
-@pytest.fixture
-def default_readme_dtool_task_spec(dtool_lookup_config):
+def default_direct_readme_dtool_task_spec(dtool_smb_config):
     """Provide default test task_spec for ReadmeDtoolTask."""
     return {
-        'dtool_config': dtool_lookup_config,
+        'dtool_config': dtool_smb_config,
         'stored_data': True,
         'uri': 'smb://test-share/1a1f9fad-8589-413e-9602-5bbd66bfe675',
         'loglevel': logging.DEBUG,
@@ -79,10 +51,10 @@ def default_readme_dtool_task_spec(dtool_lookup_config):
 
 
 @pytest.fixture
-def default_manifest_dtool_task_spec(dtool_lookup_config):
+def default_direct_manifest_dtool_task_spec(dtool_smb_config):
     """Provide default test task_spec for ManifestDtoolTask."""
     return {
-        'dtool_config': dtool_lookup_config,
+        'dtool_config': dtool_smb_config,
         'stored_data': True,
         'uri': 'smb://test-share/1a1f9fad-8589-413e-9602-5bbd66bfe675',
         'loglevel': logging.DEBUG,
@@ -90,69 +62,18 @@ def default_manifest_dtool_task_spec(dtool_lookup_config):
 
 
 #
-# dtool lookup tasks tests
+# direct dtool lookup tasks tests
 #
-def test_query_dtool_task_run(dtool_lookup_server, default_query_dtool_task_spec, dtool_lookup_config):
+
+
+def test_direct_readme_dtool_task_run(default_direct_readme_dtool_task_spec):
     """Will lookup some dataset on the server."""
     logger = logging.getLogger(__name__)
 
-    logger.debug("Instantiate QueryDtoolTask with '{}'".format(
-        default_query_dtool_task_spec))
+    logger.debug("Instantiate DirectReadmeTask with '{}'".format(
+        default_direct_readme_dtool_task_spec))
 
-    t = QueryDtoolTask(**default_query_dtool_task_spec)
-    fw_action = t.run_task({})
-    logger.debug("FWAction:")
-    _log_nested_dict(logger.debug, fw_action.as_dict())
-
-    output = fw_action.stored_data['output']
-
-    assert len(output) == 1
-
-    # TODO: dataset creation in test
-    expected_respones = [
-        {
-            "base_uri": "smb://test-share",
-            "created_at": "Sun, 08 Nov 2020 18:38:40 GMT",
-            "creator_username": "jotelha",
-            "dtoolcore_version": "3.17.0",
-            "frozen_at": "Mon, 09 Nov 2020 11:33:41 GMT",
-            "name": "simple_test_dataset",
-            "tags": [],
-            "type": "dataset",
-            "uri": "smb://test-share/1a1f9fad-8589-413e-9602-5bbd66bfe675",
-            "uuid": "1a1f9fad-8589-413e-9602-5bbd66bfe675"
-        }
-    ]
-
-    to_compare = {
-        "base_uri": True,
-        "created_at": False,
-        "creator_username": True,
-        "dtoolcore_version": False,
-        "frozen_at": False,
-        "name": True,
-        "tags": True,
-        "type": True,
-        "uri": True,
-        "uuid": True
-    }
-
-    compares = compare(
-        output[0],
-        expected_respones[0],
-        to_compare
-    )
-    assert compares
-
-
-def test_readme_dtool_task_run(dtool_lookup_server, default_readme_dtool_task_spec, dtool_lookup_config):
-    """Will lookup some dataset on the server."""
-    logger = logging.getLogger(__name__)
-
-    logger.debug("Instantiate ReadmeDtoolTask with '{}'".format(
-        default_readme_dtool_task_spec))
-
-    t = ReadmeDtoolTask(**default_readme_dtool_task_spec)
+    t = DirectReadmeTask(**default_direct_readme_dtool_task_spec)
     fw_action = t.run_task({})
     logger.debug("FWAction:")
     _log_nested_dict(logger.debug, fw_action.as_dict())
@@ -185,14 +106,14 @@ def test_readme_dtool_task_run(dtool_lookup_server, default_readme_dtool_task_sp
     assert compare(output, expected_respone)
 
 
-def test_manifest_dtool_task_run(dtool_lookup_server, default_manifest_dtool_task_spec, dtool_lookup_config):
+def test_direct_manifest_dtool_task_run(default_direct_manifest_dtool_task_spec):
     """Will lookup some dataset on the server."""
     logger = logging.getLogger(__name__)
 
     logger.debug("Instantiate ManifestDtoolTask with '{}'".format(
-        default_manifest_dtool_task_spec))
+        default_direct_manifest_dtool_task_spec))
 
-    t = ManifestDtoolTask(**default_manifest_dtool_task_spec)
+    t = DirectManifestTask(**default_direct_manifest_dtool_task_spec)
     fw_action = t.run_task({})
     logger.debug("FWAction:")
     _log_nested_dict(logger.debug, fw_action.as_dict())
@@ -232,14 +153,10 @@ def test_manifest_dtool_task_run(dtool_lookup_server, default_manifest_dtool_tas
 # complex workflow
 
 @pytest.fixture
-def workflow_initial_fw_spec(dtool_lookup_config):
+def workflow_initial_fw_spec(dtool_smb_config):
     """Provide complex workflow test task_spec for QueryDtoolTask."""
     return {
         'initial_inputs': {
-             'query': json.dumps({
-                'base_uri': 'smb://test-share',
-                'name': {'$regex': 'test'},
-            }),
             'search': {
                 'relpath': 'simple_text_file.txt',
             },
@@ -256,27 +173,12 @@ def workflow_initial_fw_spec(dtool_lookup_config):
 
 
 @pytest.fixture
-def workflow_query_dtool_task_spec(dtool_lookup_config):
+def workflow_direct_readme_dtool_task_spec(dtool_smb_config):
     """Provide complex workflow test task_spec for QueryDtoolTask."""
     return {
-        'dtool_config': dtool_lookup_config,
+        'dtool_config': dtool_smb_config,
         'stored_data': True,
-        'query_key': 'initial_inputs->query',
-        'limit': 1,
-        'expand': True,
-        'sort_key': 'frozen_at',
-        'sort_direction': -1,
-        'output': 'query_dtool_task->result',
-        'loglevel': logging.DEBUG
-    }
-
-@pytest.fixture
-def workflow_readme_dtool_task_spec(dtool_lookup_config):
-    """Provide complex workflow test task_spec for QueryDtoolTask."""
-    return {
-        'dtool_config': dtool_lookup_config,
-        'stored_data': True,
-        'uri': {'key': 'query_dtool_task->result->uri'},
+        'uri': 'smb://test-share/1a1f9fad-8589-413e-9602-5bbd66bfe675',
         'output': 'metadata',
         'metadata_fw_source_key': 'metadata',
         'fw_supersedes_dtool': True,
@@ -287,12 +189,12 @@ def workflow_readme_dtool_task_spec(dtool_lookup_config):
 
 
 @pytest.fixture
-def workflow_manifest_dtool_task_spec(dtool_lookup_config):
+def workflow_direct_manifest_dtool_task_spec(dtool_smb_config):
     """Provide complex workflow test task_spec for ManifestDtoolTask."""
     return {
-        'dtool_config': dtool_lookup_config,
+        'dtool_config': dtool_smb_config,
         'stored_data': True,
-        'uri': {'key': 'query_dtool_task->result->uri'},
+        'uri': 'smb://test-share/1a1f9fad-8589-413e-9602-5bbd66bfe675',
         'output': 'manifest_dtool_task->result',
         'loglevel': logging.DEBUG
     }
@@ -318,59 +220,26 @@ def workflow_fetch_item_task_spec(dtool_smb_config):
     """Provide default test task_spec for CopyDatasetTask."""
     return {
         'item_id': {'key': 'search_dict_task->result'},
-        'source': {'key': 'query_dtool_task->result->uri'},
+        'source': 'smb://test-share/1a1f9fad-8589-413e-9602-5bbd66bfe675',
         'filename': 'fetched_item.txt',
         'dtool_config': dtool_smb_config,
         'stored_data': True,
     }
 
 
-def test_complex_dtool_workflow(
+def test_complex_direct_dtool_workflow(
         tempdir, workflow_initial_fw_spec,
-        workflow_query_dtool_task_spec, workflow_readme_dtool_task_spec, workflow_manifest_dtool_task_spec,
+        workflow_direct_readme_dtool_task_spec, workflow_direct_manifest_dtool_task_spec,
         workflow_search_dict_task_spec, workflow_fetch_item_task_spec,
-        dtool_lookup_server, dtool_lookup_config):
+        dtool_smb_config):
     """Query lookup server for datasets, subsequently query the readme, merge into fw_spec, then fetch specific file."""
     logger = logging.getLogger(__name__)
 
-    # query
-
-    t = QueryDtoolTask(workflow_query_dtool_task_spec)
-    logger.debug("Instantiated QueryDtoolTask as:")
-    _log_nested_dict(logger.debug, t.as_dict())
-
-    fw_spec = workflow_initial_fw_spec
-    fw_action = t.run_task(fw_spec)
-    logger.debug("FWAction:")
-    _log_nested_dict(logger.debug, fw_action.as_dict())
-
-    for mod in fw_action.mod_spec:
-        apply_mod(mod, fw_spec)
-    logger.debug("Modified fw_spec:")
-    _log_nested_dict(logger.debug, fw_spec)
-    
-    expected_result =  {
-        "base_uri": "smb://test-share",
-        "created_at": 1604860720.736,
-        "creator_username": "jotelha",
-        "dtoolcore_version": "3.17.0",
-        "frozen_at": 1606595093.551,
-        "name": "simple_test_dataset",
-        "tags": [],
-        "type": "dataset",
-        "uri": "smb://test-share/1a1f9fad-8589-413e-9602-5bbd66bfe675",
-        "uuid": "1a1f9fad-8589-413e-9602-5bbd66bfe675"
-    }
-
-    marker = _make_marker(expected_result)
-    marker['created_at'] = False
-    marker['frozen_at'] = False
-    marker['dtoolcore_version'] = False
-    assert compare(fw_spec['query_dtool_task']['result'], expected_result, marker)
-
     # readme
 
-    t = ReadmeDtoolTask(workflow_readme_dtool_task_spec)
+    fw_spec = workflow_initial_fw_spec
+
+    t = DirectReadmeTask(workflow_direct_readme_dtool_task_spec)
     logger.debug("Instantiated ReadmeDtoolTask as:")
     _log_nested_dict(logger.debug, t.as_dict())
 
@@ -410,7 +279,7 @@ def test_complex_dtool_workflow(
 
     # manifest
 
-    t = ManifestDtoolTask(workflow_manifest_dtool_task_spec)
+    t = DirectManifestTask(workflow_direct_manifest_dtool_task_spec)
     logger.debug("Instantiated ManifestDtoolTask as:")
     _log_nested_dict(logger.debug, t.as_dict())
 
