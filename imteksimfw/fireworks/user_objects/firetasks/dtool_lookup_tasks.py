@@ -590,6 +590,8 @@ class ManifestDtoolTask(DtoolLookupTask):
 # below tasks are equivalent to above, but do not require a dtool lookup server connection.
 # Instead, they generate the desired metadata directly from a reachable dataset.
 
+# TODO: factor out common parts of direct tasks below and lookup tasks above (almost everything)
+
 class DirectReadmeTask(DtoolLookupTask):
     """
     Firetask to get a dataset's README directly by a dataset's URI and inject
@@ -755,7 +757,7 @@ class DirectManifestTask(DtoolLookupTask):
         may also be a dict of format { 'key': 'some->nested->fw_spec->key' }
         for looking up value within fw_spec instead.
     """
-    _fw_name = 'ManifestDtoolTask'
+    _fw_name = 'DirectManifestTask'
     required_params = [
         *DtoolLookupTask.required_params,
         "uri"]
