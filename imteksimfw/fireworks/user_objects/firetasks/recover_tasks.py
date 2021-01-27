@@ -49,6 +49,8 @@ __date__ = 'August 10, 2020'
 
 DEFAULT_FORMATTER = logging.Formatter(FW_LOGGING_FORMAT)
 
+#TODO: if wrong parent fails (i.e. unexpected order of entries in _fizzled_parents) then wrong launchdir is
+# selected to copy everything (including restart files from). Correct i.e. by matching against some identifier.
 
 class RecoverTask(FiretaskBase):
     """
@@ -334,7 +336,7 @@ class RecoverTask(FiretaskBase):
             - obj_dict (dict): describes either single FW or whole Workflow
             - base_spec (dict): use those specs for all FWs within workflow.
                 Specific specs already set within obj_dict take precedence.
-            - exclusiond (dict): nested dict with keys marked for exclusion
+            - exclusions (dict): nested dict with keys marked for exclusion
                 by True boolean value. Excluded keys are stripped off base_spec.
 
         Returns:
