@@ -66,7 +66,7 @@ def from_fw_spec(param, fw_spec):
 # TODO: This follows almost the same pattern as DtoolTask, further abstraction possible
 class DataflowTask(RunAsChildProcessTask):
     """
-    A dtool lookup task ABC.
+    A dataflow task ABC.
 
     Required params:
         None
@@ -84,12 +84,10 @@ class DataflowTask(RunAsChildProcessTask):
         - stdlog_file (str, Default: NameOfTaskClass.log): print log to file
         - loglevel (str, Default: logging.INFO): loglevel for this task
     """
-    _fw_name = 'DtoolTask'
+    _fw_name = 'DataflowTask'
     required_params = [*RunAsChildProcessTask.required_params]
     optional_params = [
         *RunAsChildProcessTask.optional_params,
-        "dtool_config",
-        "dtool_config_key",
         "stored_data",
         "output_key",
         "dict_mod",
@@ -109,9 +107,6 @@ class DataflowTask(RunAsChildProcessTask):
         output_key = self.get('output_key', None)
         dict_mod = self.get('dict_mod', '_set')
         propagate = self.get('propagate', False)
-
-        dtool_config = self.get("dtool_config", {})
-        dtool_config_key = self.get("dtool_config_key")
 
         stdlog_file = self.get('stdlog_file', '{}.log'.format(self._fw_name))
         store_stdlog = self.get('store_stdlog', False)
@@ -133,28 +128,6 @@ class DataflowTask(RunAsChildProcessTask):
                 logfh.setFormatter(DEFAULT_FORMATTER)
                 stack.enter_context(
                     LoggingContext(handler=logfh, level=loglevel, close=True))
-
-            logger = logging.getLogger(__name__)
-
-            logger.debug("task spec level dtool config overrides:")
-            _log_nested_dict(logger.debug, dtool_config)
-
-            # fw_spec dynamic dtool_config overrides
-            dtool_config_update = {}
-            if dtool_config_key is not None:
-                try:
-                    dtool_config_update = get_nested_dict_value(
-                        fw_spec, dtool_config_key)
-                    logger.debug("fw_spec level dtool config overrides:")
-                    _log_nested_dict(logger.debug, dtool_config_update)
-                except Exception:  # key not found
-                    logger.warning("{} not found within fw_spec, ignored.".format(
-                        dtool_config_key))
-            dtool_config.update(dtool_config_update)
-            logger.debug("effective dtool config overrides:")
-            _log_nested_dict(logger.debug, dtool_config)
-
-            stack.enter_context(TemporaryOSEnviron(env=dtool_config))
 
             output = self._run_task_internal(fw_spec)
 
