@@ -847,9 +847,9 @@ class BranchWorkflowTask(DataflowTask):
         return fw_action
 
 
-class JoinDictTask(FireTaskBase):
+class EnhancedJoinDictTask(FireTaskBase):
     """ combines specified spec fields into a dictionary """
-    _fw_name = 'JoinDictTask'
+    _fw_name = 'EnhancedJoinDictTask'
     required_params = ['inputs', 'output']
     optional_params = ['rename']
 
@@ -888,9 +888,9 @@ class JoinDictTask(FireTaskBase):
         # return FWAction(update_spec={self['output']: output})
 
 
-class JoinListTask(FireTaskBase):
+class EnhancedJoinListTask(FireTaskBase):
     """ combines specified spec fields into a list. """
-    _fw_name = 'JoinListTask'
+    _fw_name = 'EnhancedJoinListTask'
     required_params = ['inputs', 'output']
 
     def run_task(self, fw_spec):
