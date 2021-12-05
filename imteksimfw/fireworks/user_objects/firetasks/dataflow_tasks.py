@@ -32,10 +32,11 @@ from typing import Dict, List
 from abc import abstractmethod
 from contextlib import ExitStack
 
-from fireworks.core.firework import FiretaskBase, FWAction
+from fireworks import Firework
+from fireworks.core.firework import FireTaskBase, FWAction
 from fireworks.fw_config import FW_LOGGING_FORMAT
-from fireworks.utilities.fw_serializers import ENCODING_PARAMS
-from fireworks.utilities.dict_mods import get_nested_dict_value
+from fireworks.utilities.fw_serializers import load_object, ENCODING_PARAMS
+from fireworks.utilities.dict_mods import get_nested_dict_value, set_nested_dict_value
 
 from imteksimfw.utils.environ import TemporaryOSEnviron
 from imteksimfw.utils.dict import compare
@@ -271,3 +272,166 @@ class SearchDictTask(DataflowTask):
 
         logger.info("Return '%s'" % matches)
         return matches
+
+
+# Overrides for default Fireworks dataflow tasks
+
+class ForeachTask(DataflowTask):
+    """
+    This firetask branches the workflow creating parallel fireworks
+    using FWAction: one firework for each element or each chunk from the
+    *split* list. Each firework in this generated list contains the firetask
+    specified in the *task* dictionary. If the number of chunks is specified
+    the *split* list will be divided into this number of chunks and each
+    chunk will be processed by one of the generated child fireworks.
+
+    Required params:
+        - task (dict): a dictionary version of the firetask
+        - split (str or [str]): label  an input list or a list of such;
+          they must be available both in
+          the *inputs* list of the specified task and in the spec.
+
+    Optional params:
+        - number of chunks (int): if provided the *split* input list will be
+          divided into this number of sublists and each will be processed by
+          a separate child firework
+    """
+    _fw_name = 'ForeachTask'
+    required_params = [
+        *DataflowTask.required_params,
+        "task",
+        "split"]
+    optional_params = [
+        *DataflowTask.optional_params,
+        "number of chunks"
+    ]
+
+    def _run_task_internal(self, fw_spec):
+        assert isinstance(self['split'], (str,list)), self['split']
+        split_list = self['split']
+        if isinstance( split_list, str): split_list = [split_list]
+
+        reflen = 0
+        for split in split_list:
+            assert isinstance(fw_spec[split], list)
+            #if isinstance(self['task']['inputs'], list):
+            #    assert split in self['task']['inputs']
+            #else: # only one inputs entry , str
+            #    assert split == self['task']['inputs']
+
+            split_field = fw_spec[split]
+            lensplit = len(split_field)
+
+            # update reflen on first iteration
+            if reflen == 0:
+                assert lensplit != 0, ('input to split is empty:', split)
+                reflen = lensplit
+                nchunks = self.get('number of chunks')
+                if not nchunks:
+                    nchunks = lensplit
+                chunklen = lensplit // nchunks
+                if lensplit % nchunks > 0:
+                    chunklen = chunklen + 1
+
+                chunks = [ { split: split_field[i:i+chunklen] } for i in range(0, lensplit, chunklen)]
+            else:
+                assert lensplit == reflen, ('input lists not of equal length:', split)
+                for i in range(0, lensplit, chunklen):
+                    chunks[i//chunklen].update( { split: split_field[i:i+chunklen] } )
+
+        fireworks = []
+        chunk_index_spec = self.get('chunk index spec')
+
+        # allow for multiple tasks
+        task_list = self['task']
+        if not isinstance( task_list, list ):
+            task_list = [ task_list ]
+        for index, chunk in enumerate(chunks):
+            spec = fw_spec.copy()
+            for split in split_list:
+                spec[split] = chunk[split]
+
+            tasks = []
+            for task_entry in task_list:
+                task = load_object(task_entry)
+                task['chunk_number'] = index
+                tasks.append(task)
+
+            if chunk_index_spec and isinstance(chunk_index_spec, str):
+                spec[chunk_index_spec] = index
+            name = self._fw_name + ' ' + str(index)
+            fireworks.append(Firework(tasks, spec=spec, name=name))
+        return FWAction(detours=fireworks)
+
+
+class JoinDictTask(FireTaskBase):
+    """ combines specified spec fields into a dictionary """
+    _fw_name = 'JoinDictTask'
+    required_params = ['inputs', 'output']
+    optional_params = ['rename']
+
+    def run_task(self, fw_spec):
+        assert isinstance(self['output'], str)
+        assert isinstance(self['inputs'], list)
+
+        try:  # replace if / esle with try / except to find possibly nested val
+            output = get_nested_dict_value(fw_spec, self['output'])
+        except KeyError:
+            output = {}
+
+        assert isinstance(output, dict), "output must be dict."
+
+        if self.get('rename'):
+            assert isinstance(self.get('rename'), dict)
+            rename = self.get('rename')
+        else:
+            rename = {}
+        for item in self['inputs']:
+            if item in rename:
+                output = set_nested_dict_value(
+                    output, self['rename'][item],
+                    get_nested_dict_value(fw_spec, item))
+                # replaces
+                # output[self['rename'][item]] = fw_spec[item]
+            else:
+                output = set_nested_dict_value(
+                    output, item,
+                    get_nested_dict_value(fw_spec, item))
+                # replaces
+                # output[item] = fw_spec[item]
+
+        return FWAction(mod_spec=[{'_set': {self['output']: output}}])
+        # replaces
+        # return FWAction(update_spec={self['output']: output})
+
+
+class JoinListTask(FireTaskBase):
+    """ combines specified spec fields into a list. """
+    _fw_name = 'JoinListTask'
+    required_params = ['inputs', 'output']
+
+    def run_task(self, fw_spec):
+        assert isinstance(self['output'], str)
+        assert isinstance(self['inputs'], list)
+
+        try:  # replace if / esle with try / except to find possibly nested val
+            output = get_nested_dict_value(fw_spec, self['output'])
+        except KeyError:
+            output = []
+        assert isinstance(output, list), "output must be list."
+        # replaces
+        # if self['output'] not in fw_spec:
+        #    output = []
+        # else:
+        #    assert isinstance(fw_spec[self['output']], list)
+        #    output = fw_spec[self['output']]
+
+        for item in self['inputs']:
+            output.append(get_nested_dict_value(fw_spec, item))
+            # replaces
+            # output.append(fw_spec[item])
+
+        return FWAction(mod_spec=[{'_set': {self['output']: output}}])
+        # replaces
+        # return FWAction(update_spec={self['output']: output})
+
