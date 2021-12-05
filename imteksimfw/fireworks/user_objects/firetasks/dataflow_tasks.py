@@ -413,7 +413,6 @@ class BranchWorkflowTask(DataflowTask):
         - apply_mod_spec_to_detour_wf (bool): Apply FWAction's update_spec and
             mod_spec to 'detour_wf', , same as for all other regular children
             of this task's FireWork. Default: True.
-        - ignore_errors (bool): Ignore errors when copying files. Default: True
         - superpose_addition_on_my_fw_spec (bool):
             merge own fw_spec with fw_spec of all FireWorks within addition_wf,
             with latter enjoying precedence. Default: False.
@@ -677,18 +676,6 @@ class BranchWorkflowTask(DataflowTask):
             'superpose_detour_on_my_fw_spec', False)
         superpose_detour_on_my_fw_spec = from_fw_spec(
             superpose_detour_on_my_fw_spec, fw_spec)
-
-        fw_spec_to_exclude = self.get('fw_spec_to_exclude',
-                                      [
-                                        '_job_info',
-                                        '_fw_env',
-                                        '_files_prev',
-                                        '_fizzled_parents',
-                                      ])
-        if isinstance(fw_spec_to_exclude, list):
-            fw_spec_to_exclude_dict = {k: True for k in fw_spec_to_exclude}
-        else:  # supposed to be dict then
-            fw_spec_to_exclude_dict = fw_spec_to_exclude
 
         default_fw_spec_to_exclude = [
             '_add_fworker',
