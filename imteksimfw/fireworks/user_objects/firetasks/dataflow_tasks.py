@@ -739,11 +739,6 @@ class BranchWorkflowTask(DataflowTask):
                 minimal_base_spec[split] = chunk[split]
                 full_base_spec[split] = chunk[split]
 
-            # tasks = []
-            # for task_entry in task_list:
-            #    task = load_object(task_entry)
-            #    task['chunk_number'] = index
-            #    tasks.append(task)
             minimal_base_spec['chunk_number'] = index
             full_base_spec['chunk_number'] = index
 
@@ -829,7 +824,7 @@ class BranchWorkflowTask(DataflowTask):
 
                 self.write_files_prev(addition_wf, fw_spec, root_fw_ids=mapped_addition_fws_root)
                 logger.debug("addition_wf:")
-                _log_nested_dict(logger.debug, detour_wf.as_dict())
+                _log_nested_dict(logger.debug, addition_wf.as_dict())
 
                 if apply_mod_spec_to_addition_wf:
                     apply_mod_spec(addition_wf, fw_action, fw_ids=mapped_addition_fws_root)
