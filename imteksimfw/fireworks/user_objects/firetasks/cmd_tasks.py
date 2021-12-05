@@ -257,6 +257,7 @@ class LoggingContext():
             self.handler.close()
         # implicit return of None => don't swallow exceptions
 
+
 # TODO: there seems to be an issue with unclean temporary environment
 # at CmdTask only resolvable after rlaunch restart:
 # NameError: name 'false' is not defined
@@ -322,6 +323,7 @@ def get_nested_dict_value(d, key):
         val = get_nested_dict_value(d[key_prefix], key_suffix)
 
     return val
+
 
 # https://stackoverflow.com/questions/19924104/python-multiprocessing-handling-child-errors-in-parent
 class Process(multiprocessing.Process):
@@ -487,7 +489,6 @@ class EnvTask(FiretaskBase):
                 # optional 2nd context: logging to file context
                 stack.enter_context(
                     LoggingContext(handler=logfh, level=self.loglevel, close=True))
-
 
             # redirect stdout and stderr if desired (store them in db later)
             # create non-default streams to insert into db if desired
