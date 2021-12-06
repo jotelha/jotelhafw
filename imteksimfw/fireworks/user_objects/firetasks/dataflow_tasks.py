@@ -832,12 +832,19 @@ class BranchWorkflowTask(DataflowTask):
                 addition_wf_list.append(addition_wf)
                 all_mapped_addition_fws_root.append(mapped_addition_fws_root)
 
-        fw_action.detours = detour_wf_list
-        fw_action.detours_root_fw_ids = all_mapped_detour_fws_root
-        fw_action.detours_leaf_fw_ids = all_mapped_detour_fws_leaf
+        # if an action's detour is not None but empty list, then fireworks
+        # throws
+        #   File ".../site-packages/fireworks/core/firework.py", line 185, in __init__
+        #     elif not isinstance(self.detours_root_fw_ids[0], (list, tuple)):
+        #       IndexError: list index out of range"
+        if len(detour_wf_list) > 0:
+            fw_action.detours = detour_wf_list
+            fw_action.detours_root_fw_ids = all_mapped_detour_fws_root
+            fw_action.detours_leaf_fw_ids = all_mapped_detour_fws_leaf
 
-        fw_action.additions = addition_wf_list
-        fw_action.additions_root_fw_ids = all_mapped_addition_fws_root
+        if len(addition_wf_list) > 0:
+            fw_action.additions = addition_wf_list
+            fw_action.additions_root_fw_ids = all_mapped_addition_fws_root
 
         return fw_action
 
