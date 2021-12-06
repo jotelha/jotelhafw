@@ -643,7 +643,7 @@ class BranchWorkflowTask(DataflowTask):
                 for i in range(0, lensplit, chunklen):
                     chunks[i // chunklen].update({split: split_field[i:i + chunklen]})
 
-            logger.debug("Split into {} chunks of length {}: {}.".format(nchunks, chunklen, chunk))
+            logger.debug("Split into {} chunks of length {}: {}.".format(nchunks, chunklen, chunks))
 
         chunk_index_spec = self.get('chunk index spec')
 
