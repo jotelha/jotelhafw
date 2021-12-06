@@ -762,7 +762,7 @@ class BranchWorkflowTask(DataflowTask):
                     detour_wf_base_spec = minimal_base_spec.copy()
 
                 logger.debug("Base spec for detour {}:".format(index))
-                _log_nested_dict(detour_wf_base_spec)
+                _log_nested_dict(logger.debug, detour_wf_base_spec)
 
                 detour_wf, detour_wf_fw_id_mapping = self.appendable_wf_from_dict(
                     detour_wf_dict, base_spec=detour_wf_base_spec,
@@ -811,7 +811,7 @@ class BranchWorkflowTask(DataflowTask):
                     addition_wf_base_spec = minimal_base_spec.copy()
 
                 logger.debug("Base spec for addition {}:".format(index))
-                _log_nested_dict(addition_wf_base_spec)
+                _log_nested_dict(logger.debug, addition_wf_base_spec)
 
                 addition_wf, addition_wf_fw_id_mapping = self.appendable_wf_from_dict(
                     addition_wf_dict, base_spec=addition_wf_base_spec,
