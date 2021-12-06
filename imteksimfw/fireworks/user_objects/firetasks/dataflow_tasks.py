@@ -23,7 +23,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 """Extensions to fireworks dataflow tasks."""
-
+import copy
 import glob
 import io
 import logging
@@ -736,7 +736,7 @@ class BranchWorkflowTask(DataflowTask):
 
         for index, chunk in enumerate(chunks):
             minimal_base_spec = {}
-            full_base_spec = fw_spec.copy()
+            full_base_spec = copy.deepcopy(fw_spec)
             for split in split_list:
                 minimal_base_spec[split] = chunk[split]
                 full_base_spec[split] = chunk[split]
@@ -756,16 +756,17 @@ class BranchWorkflowTask(DataflowTask):
 
             # build detour wf
             if isinstance(detour_wf_dict, dict):
+                new_detour_wf_dict = copy.deepcopy(detour_wf_dict)
                 if superpose_detour_on_my_fw_spec:
-                    detour_wf_base_spec = full_base_spec.copy()
+                    detour_wf_base_spec = copy.deepcopy(full_base_spec)
                 else:
-                    detour_wf_base_spec = minimal_base_spec.copy()
+                    detour_wf_base_spec = copy.deepcopy(minimal_base_spec)
 
                 logger.debug("Base spec for detour {}:".format(index))
                 _log_nested_dict(logger.debug, detour_wf_base_spec)
 
                 detour_wf, detour_wf_fw_id_mapping = self.appendable_wf_from_dict(
-                    detour_wf_dict, base_spec=detour_wf_base_spec,
+                    new_detour_wf_dict, base_spec=detour_wf_base_spec,
                     exclusions=detour_fw_spec_to_exclude_dict)
 
                 if detour_fws_root is None:  # default, as in core fireworks
@@ -805,16 +806,17 @@ class BranchWorkflowTask(DataflowTask):
 
             # addition wf
             if isinstance(addition_wf_dict, dict):
+                new_addition_wf_dict = copy.deepcopy(addition_wf_dict)
                 if superpose_addition_on_my_fw_spec:
-                    addition_wf_base_spec = full_base_spec.copy()
+                    addition_wf_base_spec = copy.deepcopy(full_base_spec)
                 else:
-                    addition_wf_base_spec = minimal_base_spec.copy()
+                    addition_wf_base_spec = copy.deepcopy(minimal_base_spec)
 
                 logger.debug("Base spec for addition {}:".format(index))
                 _log_nested_dict(logger.debug, addition_wf_base_spec)
 
                 addition_wf, addition_wf_fw_id_mapping = self.appendable_wf_from_dict(
-                    addition_wf_dict, base_spec=addition_wf_base_spec,
+                    new_addition_wf_dict, base_spec=addition_wf_base_spec,
                     exclusions=addition_fw_spec_to_exclude_dict)
 
                 if addition_fws_root is None:
@@ -847,7 +849,7 @@ class BranchWorkflowTask(DataflowTask):
         if len(detour_wf_list) > 0:
             for index, detour_wf in enumerate(detour_wf_list):
                 logger.debug("detour_wf {}:".format(index))
-            _log_nested_dict(logger.debug, detour_wf)
+            _log_nested_dict(logger.debug, detour_wf.as_dict())
 
             fw_action.detours = detour_wf_list
             fw_action.detours_root_fw_ids = all_mapped_detour_fws_root
@@ -856,7 +858,7 @@ class BranchWorkflowTask(DataflowTask):
         if len(addition_wf_list) > 0:
             for index, addition_wf in enumerate(addition_wf_list):
                 logger.debug("addition_wf {}:".format(index))
-            _log_nested_dict(logger.debug, addition_wf)
+            _log_nested_dict(logger.debug, addition_wf.as_dict())
 
             fw_action.additions = addition_wf_list
             fw_action.additions_root_fw_ids = all_mapped_addition_fws_root
