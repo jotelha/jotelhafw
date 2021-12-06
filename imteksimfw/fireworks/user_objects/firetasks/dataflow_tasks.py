@@ -282,7 +282,7 @@ class SearchDictTask(DataflowTask):
 
 # Overrides for default Fireworks dataflow tasks
 
-class ForeachTask(DataflowTask):
+class ExtendedForeachTask(DataflowTask):
     """
     This firetask branches the workflow creating parallel fireworks
     using FWAction: one firework for each element or each chunk from the
@@ -302,7 +302,7 @@ class ForeachTask(DataflowTask):
           divided into this number of sublists and each will be processed by
           a separate child firework
     """
-    _fw_name = 'ForeachTask'
+    _fw_name = 'ExtendedForeachTask'
     required_params = [
         *DataflowTask.required_params,
         "task",
@@ -605,14 +605,16 @@ class BranchWorkflowTask(DataflowTask):
         return wf
 
     def _run_task_internal(self, fw_spec):
+        logger = logging.getLogger(__name__)
 
         # from original ForeachTask
         assert isinstance(self['split'], (str, list)), self['split']
         split_list = self['split']
         if isinstance(split_list, str): split_list = [split_list]
-
+        logger.debug("Iteratring through '{}'.", split_list)
         reflen = 0
         for split in split_list:
+            logger.debug("Splitting field '{}'.", split)
             assert isinstance(fw_spec[split], list)
             # if isinstance(self['task']['inputs'], list):
             #    assert split in self['task']['inputs']
@@ -620,7 +622,9 @@ class BranchWorkflowTask(DataflowTask):
             #    assert split == self['task']['inputs']
 
             split_field = fw_spec[split]
+            logger.debug("Field content '{}'.".format(split_field))
             lensplit = len(split_field)
+            logger.debug("Length {}.".format(lensplit))
 
             # update reflen on first iteration
             if reflen == 0:
@@ -639,8 +643,9 @@ class BranchWorkflowTask(DataflowTask):
                 for i in range(0, lensplit, chunklen):
                     chunks[i // chunklen].update({split: split_field[i:i + chunklen]})
 
-        chunk_index_spec = self.get('chunk index spec')
+            logger.debug("Split into {} chunks of length {}: {}.".format(nchunks, chunklen, chunk))
 
+        chunk_index_spec = self.get('chunk index spec')
 
         # following adaptedfrom RecoverTask
 
@@ -712,8 +717,6 @@ class BranchWorkflowTask(DataflowTask):
         else:  # supposed to be dict then
             detour_fw_spec_to_exclude_dict = detour_fw_spec_to_exclude
 
-        logger = logging.getLogger(__name__)
-
         # input assertions, ATTENTION: order matters
 
         # find other files to forward:
@@ -732,7 +735,6 @@ class BranchWorkflowTask(DataflowTask):
         fw_action = FWAction()
 
         for index, chunk in enumerate(chunks):
-
             minimal_base_spec = {}
             full_base_spec = fw_spec.copy()
             for split in split_list:
@@ -759,10 +761,12 @@ class BranchWorkflowTask(DataflowTask):
                 else:
                     detour_wf_base_spec = minimal_base_spec.copy()
 
+                logger.debug("Base spec for detour {}:".format(index))
+                _log_nested_dict(detour_wf_base_spec)
+
                 detour_wf, detour_wf_fw_id_mapping = self.appendable_wf_from_dict(
                     detour_wf_dict, base_spec=detour_wf_base_spec,
                     exclusions=detour_fw_spec_to_exclude_dict)
-
 
                 if detour_fws_root is None:  # default, as in core fireworks
                     mapped_detour_fws_root.extend(detour_wf.root_fw_ids)
@@ -806,6 +810,9 @@ class BranchWorkflowTask(DataflowTask):
                 else:
                     addition_wf_base_spec = minimal_base_spec.copy()
 
+                logger.debug("Base spec for addition {}:".format(index))
+                _log_nested_dict(addition_wf_base_spec)
+
                 addition_wf, addition_wf_fw_id_mapping = self.appendable_wf_from_dict(
                     addition_wf_dict, base_spec=addition_wf_base_spec,
                     exclusions=addition_fw_spec_to_exclude_dict)
@@ -838,11 +845,19 @@ class BranchWorkflowTask(DataflowTask):
         #     elif not isinstance(self.detours_root_fw_ids[0], (list, tuple)):
         #       IndexError: list index out of range"
         if len(detour_wf_list) > 0:
+            for index, detour_wf in enumerate(detour_wf_list):
+                logger.debug("detour_wf {}:".format(index))
+            _log_nested_dict(logger.debug, detour_wf)
+
             fw_action.detours = detour_wf_list
             fw_action.detours_root_fw_ids = all_mapped_detour_fws_root
             fw_action.detours_leaf_fw_ids = all_mapped_detour_fws_leaf
 
         if len(addition_wf_list) > 0:
+            for index, addition_wf in enumerate(addition_wf_list):
+                logger.debug("addition_wf {}:".format(index))
+            _log_nested_dict(logger.debug, addition_wf)
+
             fw_action.additions = addition_wf_list
             fw_action.additions_root_fw_ids = all_mapped_addition_fws_root
 
