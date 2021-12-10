@@ -415,7 +415,7 @@ class CreateDatasetTask(DtoolTask):
                                     current_source_dataset.uuid))
 
                         if 'name' in d and d['name'] != current_source_dataset.name:
-                            logger.waning((
+                            logger.warning((
                                 "Source dataset #{} actual name '{}' "
                                 "does not agree with specified default '{}'. "
                                 "Former will override latter.").format(
@@ -423,7 +423,7 @@ class CreateDatasetTask(DtoolTask):
                         d["name"] = current_source_dataset.name
 
                         if 'uuid' in d and d['uuid'] != current_source_dataset.uuid:
-                            logger.waning((
+                            logger.warning((
                                 "Source dataset #{} actual UUID '{}' "
                                 "does not agree with specified default '{}'. "
                                 "Former will override latter.").format(
