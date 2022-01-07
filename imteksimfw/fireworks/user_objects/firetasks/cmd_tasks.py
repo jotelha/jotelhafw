@@ -24,7 +24,6 @@
 # SOFTWARE.
 """Tasks that modify the environment by lookups in the worker file."""
 
-import functools
 import logging
 import io
 import multiprocessing
@@ -45,8 +44,6 @@ from fireworks.user_objects.firetasks.script_task import ScriptTask, PyTask
 
 # in order to have a somewhat centralized encoding configuration
 from fireworks.utilities.fw_serializers import ENCODING_PARAMS
-
-from imteksimfw.utils.tracer import trace_func
 
 __author__ = 'Johannes Hoermann'
 __copyright__ = 'Copyright 2018, IMTEK'
@@ -286,28 +283,6 @@ class TemporarySysPath:
         sys.path = self._original_sys_path
 
 
-def trace_method(func):
-    """Decorator to trace own methods."""
-    @functools.wraps(func)
-    def wrapper_trace_method(self, *args, **kwargs):
-        if hasattr(self, '_call_log_stream'):
-            call_log_stream = self._call_log_stream
-        else:
-            call_log_stream = sys.stderr
-
-        if hasattr(self, '_vars_log_stream'):
-            vars_log_stream = self._vars_log_stream
-        else:
-            vars_log_stream = sys.stderr
-
-        return trace_func(
-            module=__name__,
-            call_printer_stream=call_log_stream,
-            vars_snooper_stream=vars_log_stream,
-         )(func)(self, *args, **kwargs)
-    return wrapper_trace_method
-
-
 def get_nested_dict_value(d, key):
     """Uses '.'-splittable string as key to access nested dict."""
     if key in d:
@@ -362,9 +337,6 @@ class EnvTask(FiretaskBase):
         'stderr_file', and 'stdlog_file'.
       * store stdout and stderr and log messages in database if 'stored_stdout',
         'store_stderr', 'store_stdlog' are set,
-      * trace execution and stream calls and variable changes to
-        'call_log_file' and 'vars_log_file' if the package 'hunter' is
-        available.
       * write simple (non-exhaustive) pseudo command history to 'py_hist_file'.
 
     Examples:
@@ -417,8 +389,8 @@ class EnvTask(FiretaskBase):
         'env',
         'loglevel',
         'py_hist_file',
-        'call_log_file',
-        'vars_log_file',
+        'call_log_file', # obsolete
+        'vars_log_file', # obsolete
         'stdout_file',
         'stderr_file',
         'stdlog_file',
@@ -564,22 +536,6 @@ class EnvTask(FiretaskBase):
                 self._py_hist_logger.removeHandler(h)
             self._py_hist_logger.addHandler(py_hist_handler)
 
-            # write tracer call logs to file if desired
-            if self.call_log_file:
-                self._call_log_stream = open(self.call_log_file, mode='a', **ENCODING_PARAMS)
-                # optional 9th context: trace calls to file
-                stack.enter_context(self._call_log_stream)
-            else:
-                self._call_log_stream = os.devnull
-
-            # write tracer variable change logs to file if desired
-            if self.vars_log_file:
-                self._vars_log_stream = open(self.vars_log_file, mode='a', **ENCODING_PARAMS)
-                # optional 10th context: trace variable changes to file
-                stack.enter_context(self._vars_log_stream)
-            else:
-                self._vars_log_stream = os.devnull
-
             # log, stdout, stderr streams are logged to
             # files and database, depending on flags.
 
@@ -636,8 +592,6 @@ class EnvTask(FiretaskBase):
         self.env = self.get('env')
         self.loglevel = self.get('loglevel', logging.DEBUG)
         self.py_hist_file = self.get('py_hist_file', 'simple_hist.py')
-        self.call_log_file = self.get('call_log_file', 'calls.log')
-        self.vars_log_file = self.get('vars_log_file', 'vars.log')
 
         self.stdout_file = d.get('stdout_file', 'std.out')
         self.stderr_file = d.get('stderr_file', 'std.err')
@@ -804,7 +758,6 @@ class CmdTask(EnvTask, ScriptTask):
         """List of arguments (including command) as list of str only."""
         return [a if isinstance(a, str) else str(a) for a in self._args]
 
-    @trace_method
     def _run_task_internal(self, fw_spec):
         """Run task."""
         stdout = subprocess.PIPE # if self.store_stdout or self.stdout_file else None
@@ -1302,7 +1255,6 @@ class PyEnvTask(EnvTask, PyTask):
             func = getattr(builtins, toks[0])
         return func
 
-    @trace_method
     def _run_task_internal(self, fw_spec):
         # run snippet
         # in case of a specified worker environment
