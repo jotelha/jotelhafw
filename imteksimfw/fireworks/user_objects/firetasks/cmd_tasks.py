@@ -412,34 +412,11 @@ class EnvTask(FiretaskBase):
         else:
             self._load_params(self)
 
-        # spawn child process to assure my environment stays untouched
-        q = multiprocessing.Queue()
-        p = Process(target=self._run_as_child_process, args=(q, fw_spec,))
-        p.start()
-
-        # wait for child to queue fw_action object and
-        # check whether child raises exception
-        while q.empty():
-            # if child raises exception, then it has terminated
-            # before queueing any fw_action object
-            if p.exception:
-                error, p_traceback = p.exception
-                raise ChildProcessError(p_traceback)
-        # this loop will deadlock for any child that never raises
-        # an exception and does not queue anything
-
-        # child has finished without exception
-        # child must always return fw_action
-        # queue only used for one transfer of
-        # return fw_action, should thus never deadlock.
-        fw_action = q.get()
-        # if we reach this line without the child
-        # queueing anything, then process will deadlock.
-        p.join()
+        fw_action = self._run_not_as_child_process(fw_spec)
 
         return fw_action
 
-    def _run_as_child_process(self, q, fw_spec):
+    def _run_not_as_child_process(self, fw_spec):
         threads = []
 
         with ExitStack() as stack:
@@ -584,8 +561,7 @@ class EnvTask(FiretaskBase):
         if hasattr(fw_action, 'propagate') and self.propagate is not None:
             fw_action.propagate = self.propagate
 
-        # return fw_action
-        q.put(fw_action)
+        return fw_action
 
     # TODO: get rid of those _load_params functions (relic from ScriptTask)
     def _load_params(self, d):
