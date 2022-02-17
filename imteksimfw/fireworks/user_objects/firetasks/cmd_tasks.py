@@ -597,7 +597,7 @@ class EnvTask(FiretaskBase):
     # TODO: get rid of those _load_params functions (relic from ScriptTask)
     def _load_params(self, d):
         self.env = self.get('env')
-        self.env = self.get('fork', False)
+        self.fork = self.get('fork', False)
         self.loglevel = self.get('loglevel', logging.DEBUG)
         self.py_hist_file = self.get('py_hist_file', 'simple_hist.py')
 
