@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=61.0", "setuptools_scm[toml]>=6.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jlhfw"
+authors = [
+    {name = "Johannes Laurin Hoermann", email = "johannes.hoermann@imtek.uni-freiburg.de"},
+]
+description = "Custom FireWorks additions"
+readme = "README.md"
+requires-python = ">=3.6.5"
+license = {text = "MIT"}
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+]
+dynamic = ["version"]
+dependencies = [
+    "dill>=0.3.1.1",
+    "dtoolcore>=3.17.0",
+    "dtool-create>=0.23.0",
+    "dtool-lookup-api>=0.1.0",
+    "fireworks>=1.9.5",
+    "jinja2>=2.10",
+    "jinja2-time>=0.2.0",
+    "monty>=4.0.2",
+    "paramiko>=2.4.2",
+    "six>=1.15.0",
+    "ruamel.yaml>=0.16.12",
+]
+
+[project.optional-dependencies]
+testing = [
+    "mock-ssh-server>=0.8.1",
+    "dtool-smb>=0.1.0",
+    "requests>=2.24.0",
+    "urllib3<1.26,>=1.25.11",
+    "dserver>=0.15.0",
+    "dserver-direct-mongo-plugin>=0.1.2",
+]
+
+[project.urls]
+Homepage = "https://github.com/jotelha/jlhfw"
+
+[tool.setuptools]
+packages = ["jlhfw"]
+include-package-data = true
+zip-safe = false
+
+[tool.setuptools_scm]
+version_scheme = "guess-next-dev"
+local_scheme = "no-local-version"
+write_to = "jlhfw/version.py"
+
+[tool.pytest.ini_options]
+addopts = "--verbose"
+testpaths = ["tests"]
+
