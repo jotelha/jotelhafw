@@ -1,6 +1,8 @@
 # Custom FireWorks extensions
 
-[![PyPI](https://img.shields.io/pypi/v/jlhfw)](https://pypi.org/project/jlhfw/) [![Tests](https://img.shields.io/github/actions/workflow/status/jotelha/jlhfw/test.yml?branch=main)](https://github.com/jotelha/jlhfw/actions/workflows/test.yml)
+[![PyPI](https://img.shields.io/pypi/v/jlhfw)](https://pypi.org/project/jlhfw/) [![Tests](https://img.shields.io/github/actions/workflow/status/jotelha/jlhfw/test.yml?branch=main)](https://github.com/jotelha/jlhfw/actions/workflows/test.yml) [![DOI](https://zenodo.org/badge/248249133.svg)](https://doi.org/10.5281/zenodo.14007364)
+
+
 
 Johannes Hörmann, johannes.hoermann@imtek.uni-freiburg.de, Mar 2020
 
