@@ -20,7 +20,7 @@ def local_scheme(version):
     return ""
 
 
-url = 'https://github.com/IMTEK-Simulation/imteksimfw'
+url = 'https://github.com/jotelha/jlhfw'
 
 if __name__ == "__main__":
     setup(

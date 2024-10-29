@@ -1,7 +1,7 @@
 # Custom FireWorks extensions
 
-[![PyPI](https://img.shields.io/pypi/v/imteksimfw)](https://pypi.org/project/imteksimfw/) [![Tests](https://img.shields.io/github/actions/workflow/status/jotelha/jlhfw/test.yml?branch=main)](
-[https://github.com/IMTEK-Simulation/imteksimfw/actions?query=workflow%3Atest](https://github.com/jotelha/jlhfw/actions/workflows/test.yml))
+[![PyPI](https://img.shields.io/pypi/v/jlhfw)](https://pypi.org/project/jlhfw/) [![Tests](https://img.shields.io/github/actions/workflow/status/jotelha/jlhfw/test.yml?branch=main)](
+[https://github.com/jotelha/jlhfw/actions?query=workflow%3Atest](https://github.com/jotelha/jlhfw/actions/workflows/test.yml))
 
 Johannes Hörmann, johannes.hoermann@imtek.uni-freiburg.de, Mar 2020
 
@@ -15,7 +15,7 @@ This repository contains custom fireworks tasks and helper scripts used for cond
 Install the official FireWorks package, i.e. by `pip install fireworks`,
 (https://github.com/materialsproject/fireworks) and subsequently make this
 package available to your FireWorks environment, i.e. by
-`pip install imteksimfw`.
+`pip install jlhfw`.
 
 ## Custom FireTasks quick start
 
