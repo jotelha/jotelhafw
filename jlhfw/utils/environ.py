@@ -27,7 +27,7 @@
 import logging
 import os
 
-from imteksimfw.utils.logging import _log_nested_dict
+from jlhfw.utils.logging import _log_nested_dict
 
 
 class TemporaryOSEnviron:

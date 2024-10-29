@@ -26,7 +26,7 @@ if __name__ == "__main__":
     setup(
         author='Johannes Laurin Hoermann',
         author_email='johannes.hoermann@imtek.uni-freiburg.de',
-        name='imteksimfw',
+        name='jlhfw',
         description='Fireworks additions',
         long_description=readme,
         long_description_content_type="text/markdown",
@@ -34,7 +34,7 @@ if __name__ == "__main__":
         use_scm_version={
             "root": '.',
             "relative_to": __file__,
-            "write_to": os.path.join("imteksimfw", "version.py"),
+            "write_to": os.path.join("jlhfw", "version.py"),
             "local_scheme": local_scheme},
         packages=find_packages(),
         include_package_data=True,

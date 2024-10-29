@@ -350,7 +350,7 @@ class EnvTask(FiretaskBase):
 
         and evoke via CmdTask with
 
-        >>> from imteksimfw.fireworks.user_objects.firetasks.cmd_tasks import CmdTask
+        >>> from jlhfw.fireworks.user_objects.firetasks.cmd_tasks import CmdTask
         >>>
         >>> import logging
         >>>

@@ -28,7 +28,7 @@ import collections
 import logging
 
 from fireworks.utilities.dict_mods import get_nested_dict_value, apply_mod
-from imteksimfw.utils.logging import _log_nested_dict
+from jlhfw.utils.logging import _log_nested_dict
 
 __author__ = 'Johannes Laurin Hoermann'
 __copyright__ = 'Copyright 2020, IMTEK Simulation, University of Freiburg'

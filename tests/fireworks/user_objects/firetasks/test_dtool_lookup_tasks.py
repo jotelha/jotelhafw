@@ -13,14 +13,14 @@ import pytest
 
 from fireworks.utilities.dict_mods import apply_mod
 
-from imteksimfw.utils.logging import _log_nested_dict
+from jlhfw.utils.logging import _log_nested_dict
 
-from imteksimfw.fireworks.user_objects.firetasks.dataflow_tasks import SearchDictTask
-from imteksimfw.fireworks.user_objects.firetasks.dtool_tasks import FetchItemTask
-from imteksimfw.fireworks.user_objects.firetasks.dtool_lookup_tasks import (
+from jlhfw.fireworks.user_objects.firetasks.dataflow_tasks import SearchDictTask
+from jlhfw.fireworks.user_objects.firetasks.dtool_tasks import FetchItemTask
+from jlhfw.fireworks.user_objects.firetasks.dtool_lookup_tasks import (
     QueryDtoolTask, ReadmeDtoolTask, ManifestDtoolTask)
-from imteksimfw.fireworks.user_objects.firetasks.cmd_tasks import EvalPyEnvTask
-from imteksimfw.utils.dict import compare, _make_marker
+from jlhfw.fireworks.user_objects.firetasks.cmd_tasks import EvalPyEnvTask
+from jlhfw.utils.dict import compare, _make_marker
 
 # from test_dtool_tasks import _compare
 

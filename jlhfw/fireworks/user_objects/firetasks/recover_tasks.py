@@ -38,8 +38,8 @@ from fireworks.utilities.fw_serializers import ENCODING_PARAMS
 from fireworks.utilities.dict_mods import get_nested_dict_value, set_nested_dict_value
 from fireworks.core.firework import FWAction, FiretaskBase, Firework, Workflow
 
-from imteksimfw.utils.logging import LoggingContext, _log_nested_dict
-from imteksimfw.utils.dict import dict_merge, from_fw_spec, apply_mod_spec
+from jlhfw.utils.logging import LoggingContext, _log_nested_dict
+from jlhfw.utils.dict import dict_merge, from_fw_spec, apply_mod_spec
 
 
 __author__ = 'Johannes Laurin Hoermann'

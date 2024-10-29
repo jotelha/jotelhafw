@@ -5,7 +5,7 @@ To see verbose logging during testing, run something like
 
     import logging
     import unittest
-    from imteksimfw.fireworks.user_objects.firetasks.tests.test_dtool_tasks import DtoolTasksTest
+    from jlhfw.fireworks.user_objects.firetasks.tests.test_dtool_tasks import DtoolTasksTest
     logging.basicConfig(level=logging.DEBUG)
     suite = unittest.TestSuite()
     suite.addTest(DtoolTasksTest('name_of_the_desired_test'))
@@ -27,7 +27,7 @@ import mockssh
 
 # needs dtool cli for verification
 
-from imteksimfw.fireworks.user_objects.firetasks.ssh_tasks import SSHForwardTask
+from jlhfw.fireworks.user_objects.firetasks.ssh_tasks import SSHForwardTask
 
 module_dir = os.path.abspath(os.path.dirname(__file__))
 

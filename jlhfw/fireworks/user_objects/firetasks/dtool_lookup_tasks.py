@@ -42,10 +42,10 @@ from fireworks.core.firework import FWAction
 from fireworks.utilities.dict_mods import get_nested_dict_value
 from fireworks.utilities.fw_serializers import ENCODING_PARAMS
 
-from imteksimfw.utils.multiprocessing import RunAsChildProcessTask
-from imteksimfw.utils.dict import dict_merge
-from imteksimfw.utils.environ import TemporaryOSEnviron
-from imteksimfw.utils.logging import LoggingContext, _log_nested_dict
+from jlhfw.utils.multiprocessing import RunAsChildProcessTask
+from jlhfw.utils.dict import dict_merge
+from jlhfw.utils.environ import TemporaryOSEnviron
+from jlhfw.utils.logging import LoggingContext, _log_nested_dict
 
 
 __author__ = 'Johannes Laurin Hoermann'

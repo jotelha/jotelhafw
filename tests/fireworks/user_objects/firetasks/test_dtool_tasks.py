@@ -16,9 +16,9 @@ import ruamel.yaml as yaml
 
 import dtoolcore
 
-from imteksimfw.utils.environ import TemporaryOSEnviron
-from imteksimfw.utils.logging import _log_nested_dict
-from imteksimfw.fireworks.user_objects.firetasks.dtool_tasks import (
+from jlhfw.utils.environ import TemporaryOSEnviron
+from jlhfw.utils.logging import _log_nested_dict
+from jlhfw.fireworks.user_objects.firetasks.dtool_tasks import (
     CreateDatasetTask, FreezeDatasetTask, CopyDatasetTask, FetchItemTask)
 
 FIXTURE_DIR = os.path.abspath(os.path.dirname(__file__))
@@ -268,7 +268,7 @@ def _create_dataset(tempdir, files, dtool_config,
     #    description: Tests on Fireworks tasks for handling dtool datasets.
     #    owners:
     #      - name: Dtool Tasks Test
-    #        email: dtool@imteksimfw
+    #        email: dtool@jlhfw
     #        username: jotelha
     #    creation_date: 2020-04-27
     #    expiration_date: 2020-04-27

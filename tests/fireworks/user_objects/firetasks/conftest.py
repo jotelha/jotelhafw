@@ -11,7 +11,7 @@ import os
 import pytest
 import tempfile
 
-from imteksimfw.utils.logging import _log_nested_dict
+from jlhfw.utils.logging import _log_nested_dict
 
 module_dir = os.path.abspath(os.path.dirname(__file__))
 

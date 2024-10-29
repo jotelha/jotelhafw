@@ -11,7 +11,7 @@ import time
 
 from fireworks.utilities.fw_serializers import ENCODING_PARAMS
 
-from imteksimfw.utils.logging import _log_nested_dict
+from jlhfw.utils.logging import _log_nested_dict
 
 from utils import _allocate_random_free_port
 

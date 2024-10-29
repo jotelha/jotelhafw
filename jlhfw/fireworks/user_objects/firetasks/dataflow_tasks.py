@@ -39,9 +39,9 @@ from fireworks.fw_config import FW_LOGGING_FORMAT
 from fireworks.utilities.fw_serializers import load_object, ENCODING_PARAMS
 from fireworks.utilities.dict_mods import get_nested_dict_value, set_nested_dict_value
 
-from imteksimfw.utils.dict import compare, dict_merge, apply_mod_spec
-from imteksimfw.utils.logging import LoggingContext, _log_nested_dict
-from imteksimfw.utils.multiprocessing import RunAsChildProcessTask
+from jlhfw.utils.dict import compare, dict_merge, apply_mod_spec
+from jlhfw.utils.logging import LoggingContext, _log_nested_dict
+from jlhfw.utils.multiprocessing import RunAsChildProcessTask
 
 __author__ = 'Johannes Laurin Hoermann'
 __copyright__ = 'Copyright 2020, IMTEK Simulation, University of Freiburg'

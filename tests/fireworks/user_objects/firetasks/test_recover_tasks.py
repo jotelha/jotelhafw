@@ -5,7 +5,7 @@ To see verbose logging during testing, run something like
 
     import logging
     import unittest
-    from imteksimfw.fireworks.user_objects.firetasks.tests.test_recover_tasks import RecoverTasksTest
+    from jlhfw.fireworks.user_objects.firetasks.tests.test_recover_tasks import RecoverTasksTest
     logging.basicConfig(level=logging.DEBUG)
     suite = unittest.TestSuite()
     suite.addTest(RecoverTasksTest('test_do_nothing'))
@@ -30,7 +30,7 @@ import unittest
 
 from fireworks.core.firework import Firework, Workflow
 from fireworks.user_objects.firetasks.script_task import PyTask
-from imteksimfw.fireworks.user_objects.firetasks.recover_tasks import RecoverTask, dict_merge
+from jlhfw.fireworks.user_objects.firetasks.recover_tasks import RecoverTask, dict_merge
 
 module_dir = os.path.abspath(os.path.dirname(__file__))
 

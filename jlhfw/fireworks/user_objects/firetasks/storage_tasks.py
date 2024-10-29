@@ -37,8 +37,8 @@ from fireworks.core.firework import FWAction, FiretaskBase
 from fireworks.utilities.filepad import FilePad
 from fireworks.utilities.dict_mods import get_nested_dict_value, arrow_to_dot
 
-from imteksimfw.utils.logging import LoggingContext, _log_nested_dict
-from imteksimfw.utils.dict import dict_merge
+from jlhfw.utils.logging import LoggingContext, _log_nested_dict
+from jlhfw.utils.dict import dict_merge
 
 from fireworks.fw_config import FW_LOGGING_FORMAT
 from fireworks.utilities.fw_serializers import ENCODING_PARAMS

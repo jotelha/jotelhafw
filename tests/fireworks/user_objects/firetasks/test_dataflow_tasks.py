@@ -1,8 +1,8 @@
 import logging
 
-from imteksimfw.utils.logging import _log_nested_dict
-from imteksimfw.utils.dict import compare
-from imteksimfw.fireworks.user_objects.firetasks.dataflow_tasks import SearchDictTask
+from jlhfw.utils.logging import _log_nested_dict
+from jlhfw.utils.dict import compare
+from jlhfw.fireworks.user_objects.firetasks.dataflow_tasks import SearchDictTask
 
 def test_search_dict_task_run():
     """Will lookup some dataset on the server."""

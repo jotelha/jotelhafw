@@ -48,8 +48,8 @@ from fireworks.core.firework import FWAction
 from fireworks.utilities.dict_mods import get_nested_dict_value
 from fireworks.utilities.fw_serializers import ENCODING_PARAMS
 
-from imteksimfw.utils.multiprocessing import RunAsChildProcessTask
-from imteksimfw.utils.logging import LoggingContext
+from jlhfw.utils.multiprocessing import RunAsChildProcessTask
+from jlhfw.utils.logging import LoggingContext
 
 DEFAULT_FORMATTER = logging.Formatter(FW_LOGGING_FORMAT)
 
